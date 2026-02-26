@@ -1,0 +1,2069 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Safety - Карта Томска (AI Search)</title>
+
+  <!-- 2GIS loader -->
+  <script src="https://maps.api.2gis.ru/2.0/loader.js?pkg=full"></script>
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/weather-icons/2.0.12/css/weather-icons.min.css">
+
+  <style>
+    /* --- GLOBAL & LAYOUT --- */
+    html,body{height:100%;margin:0;background:linear-gradient(135deg, #0a0a0c 0%, #141418 100%);color:#fff;font-family:'Segoe UI', Roboto, Helvetica, Arial, sans-serif;}
+    
+    .page {
+      display: flex;
+      gap: 25px;
+      padding: 25px;
+      box-sizing: border-box;
+      height:100%;
+      align-items: stretch;
+      justify-content: center;
+    }
+
+    #map {
+      flex: 1 1 900px;
+      min-width: 320px;
+      height: calc(100vh - 50px);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 15px 50px rgba(0,0,0,0.6);
+      position: relative;
+      z-index: 1;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    /* --- SIDEBAR PANEL --- */
+    .panel {
+      width: 400px;
+      max-width: 40%;
+      background: rgba(30,30,35,0.7);
+      backdrop-filter: blur(20px);
+      border-radius: 24px;
+      padding: 0; 
+      box-sizing: border-box;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+      overflow-y: auto;
+      max-height: calc(100vh - 50px);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* Скроллбар */
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-track { background: transparent; }
+    .panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+    .panel::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+    .panel-content {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      transition: opacity 0.3s ease;
+    }
+
+    /* --- DETAIL VIEW (ОТОБРАЖЕНИЕ МЕСТА/РАЙОНА) --- */
+    #placeDetailView {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #1e1e24;
+      z-index: 50;
+      transform: translateX(100%); /* Hidden by default */
+      transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+      overflow-y: auto;
+      border-radius: 24px;
+    }
+    
+    #placeDetailView.active {
+      transform: translateX(0);
+    }
+
+    .detail-hero {
+      position: relative;
+      height: 250px;
+      width: 100%;
+    }
+    .detail-hero img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    }
+    
+    .detail-close-btn {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: 0.2s;
+      z-index: 10;
+      font-size: 20px;
+    }
+    .detail-close-btn:hover { background: rgba(255,255,255,0.2); transform: rotate(90deg); }
+
+    .detail-body { padding: 20px 24px 40px; margin-top: -80px; position: relative; }
+    
+    .detail-badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+    .bg-safe { background: rgba(91, 210, 90, 0.2); color: #5bd25a; border: 1px solid rgba(91,210,90,0.3); }
+    .bg-medium { background: rgba(255, 211, 42, 0.2); color: #ffd32a; border: 1px solid rgba(255,211,42,0.3); }
+    .bg-dangerous { background: rgba(255, 107, 107, 0.2); color: #ff6b6b; border: 1px solid rgba(255,107,107,0.3); }
+
+    .detail-title { font-size: 26px; font-weight: 800; margin: 0 0 5px; line-height: 1.2; }
+    .detail-coords { font-size: 12px; color: #666; font-family: monospace; margin-bottom: 20px; display: block; }
+    
+    .detail-stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding-bottom: 20px;
+    }
+    .stat-item {
+      background: rgba(255,255,255,0.03);
+      padding: 10px;
+      border-radius: 12px;
+      text-align: center;
+      flex: 1;
+    }
+    .stat-val { font-size: 14px; font-weight: 700; display: block; color: #fff; }
+    .stat-label { font-size: 10px; color: #888; text-transform: uppercase; margin-top: 4px; display: block; }
+
+    .detail-desc { font-size: 15px; line-height: 1.6; color: #ccc; margin-bottom: 25px; }
+    
+    .detail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .btn-action {
+      padding: 12px;
+      border-radius: 12px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+      font-size: 13px;
+    }
+    .btn-action.primary { background: #4a8cff; color: white; }
+    .btn-action.primary:hover { background: #357abd; }
+    .btn-action.secondary { background: rgba(255,255,255,0.05); color: #fff; }
+    .btn-action.secondary:hover { background: rgba(255,255,255,0.1); }
+
+    /* --- WIDGETS --- */
+    h2 { font-size: 14px; margin-top:0; margin-bottom: 15px; color: #fff; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.8; }
+    
+    .widget-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 20px;
+      transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .widget-card:hover {
+      background: rgba(255,255,255,0.05);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+
+    /* --- PLACE SEARCH WIDGET --- */
+    .place-search-widget {
+      background: linear-gradient(135deg, rgba(74, 140, 255, 0.1) 0%, rgba(30,30,35,0.5) 100%);
+      border-color: rgba(74, 140, 255, 0.2);
+    }
+    .search-input-group {
+        display: flex;
+        gap: 10px;
+    }
+    .search-input-group input {
+        margin-bottom: 0;
+        flex: 1;
+    }
+    .btn-search-ai {
+        background: linear-gradient(135deg, #4a8cff 0%, #357abd 100%);
+        color: white;
+        border: none;
+        padding: 0 20px;
+        border-radius: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+    }
+    .btn-search-ai:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 15px rgba(74, 140, 255, 0.4);
+    }
+    .btn-search-ai:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    /* Weather Widget */
+    .weather-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .weather-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+    .weather-refresh { background: rgba(255,255,255,0.05); border: none; color: #5bd25a; cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: 0.3s; }
+    .weather-refresh:hover { background: rgba(91, 210, 90, 0.15); transform: rotate(90deg); }
+    
+    .weather-main { display: flex; align-items: center; margin-bottom: 15px; }
+    .weather-icon { font-size: 46px; margin-right: 18px; color: #5bd25a; filter: drop-shadow(0 0 10px rgba(91,210,90,0.3)); }
+    .weather-temp { font-size: 34px; font-weight: 700; color: #fff; }
+    
+    .weather-details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; color: #aaa; }
+    .weather-detail { display: flex; align-items: center; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 10px; }
+    .weather-detail i { margin-right: 8px; color: #5bd25a; }
+
+    /* Inputs & Buttons */
+    input, textarea, select {
+      width: 100%;
+      padding: 14px 18px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #fff;
+      margin-bottom: 16px;
+      box-sizing: border-box;
+      font-size: 14px;
+      font-family: inherit;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      outline: none;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: #5bd25a;
+      background: rgba(0,0,0,0.5);
+      box-shadow: 0 0 0 4px rgba(91, 210, 90, 0.1);
+      transform: translateY(-1px);
+    }
+    label.form-label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: #888;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-left: 4px;
+    }
+
+    .btn-eco { 
+      background: linear-gradient(135deg, #5bd25a 0%, #3da13d 100%);
+      border: none;
+      color:#111;
+      padding: 16px;
+      border-radius: 50px;
+      font-weight: 700;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+      box-shadow: 0 8px 20px rgba(91, 210, 90, 0.25);
+      transition: all 0.3s;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .btn-eco:hover { 
+      transform: translateY(-3px); 
+      box-shadow: 0 12px 25px rgba(91, 210, 90, 0.4);
+    }
+
+    .btn-secondary-style {
+        background: transparent;
+        border: 1px solid rgba(255,255,255,0.15);
+        color: #eee;
+        padding: 12px;
+        border-radius: 16px;
+        width: 100%;
+        cursor: pointer;
+        transition: 0.3s;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .btn-secondary-style:hover {
+        background: rgba(255,255,255,0.05);
+        border-color: rgba(255,255,255,0.3);
+        color: #fff;
+    }
+
+    .filter-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+    
+    .filter-btn {
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.03);
+      color: #bbb;
+      border: 1px solid rgba(255,255,255,0.05);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .filter-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .filter-btn.active {
+      background: #5bd25a;
+      color: #111;
+      border-color: #5bd25a;
+      box-shadow: 0 5px 15px rgba(91, 210, 90, 0.3);
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(12px);
+      z-index: 3000; display: flex; align-items: center; justify-content: center;
+      opacity: 0; visibility: hidden; transition: all 0.3s ease;
+    }
+    .modal-overlay.active { opacity: 1; visibility: visible; }
+
+    .modal-window {
+      background: #1e1e24; width: 90%; max-width: 500px; border-radius: 30px;
+      border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 30px 80px rgba(0,0,0,0.8);
+      padding: 0; overflow: hidden; 
+      transform: scale(0.9) translateY(30px); transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+      display: flex; flex-direction: column;
+      max-height: 85vh; /* Limit height */
+    }
+    .modal-overlay.active .modal-window { transform: scale(1) translateY(0); }
+
+    .modal-header {
+      padding: 25px 30px 15px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-title { margin: 0; font-size: 20px; font-weight: 700; color: #fff; }
+
+    .modal-close { 
+      background: rgba(255,255,255,0.05); border: none; color: #aaa; 
+      width: 36px; height: 36px; border-radius: 50%; cursor: pointer; 
+      transition: 0.2s; display: flex; align-items: center; justify-content: center; font-size: 20px;
+    }
+    .modal-close:hover { background: rgba(255,0,0,0.1); color: #ff6b6b; transform: rotate(90deg); }
+
+    .modal-body { padding: 30px; overflow-y: auto; }
+    .coord-group { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .error-message { 
+      color: #ff6b6b; font-size: 13px; margin-top: -8px; margin-bottom: 12px; 
+      display: none; background: rgba(255, 107, 107, 0.1); padding: 10px 15px; 
+      border-radius: 10px; border: 1px solid rgba(255, 107, 107, 0.2); 
+    }
+    .hidden { display: none !important; }
+
+    /* Map Marker Animation */
+    .dg-marker-icon.active-marker { transform: scale(1.3); filter: drop-shadow(0 0 10px rgba(255,255,255,0.5)); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000 !important; }
+    
+    /* --- STYLES FOR GRADIENT BLOBS (NEW) --- */
+    .leaflet-blob-pane {
+        filter: blur(40px); 
+        mix-blend-mode: hard-light; 
+        opacity: 0.8;
+        z-index: 200; 
+        transition: opacity 0.5s ease-in-out; 
+    }
+    
+    /* --- USER LOCATION INDICATOR STYLES --- */
+    @keyframes pulse-green {
+      0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(91, 210, 90, 0.7);
+      }
+      70% {
+        transform: scale(1.1);
+        box-shadow: 0 0 0 20px rgba(91, 210, 90, 0);
+      }
+      100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(91, 210, 90, 0);
+      }
+    }
+
+    .user-location-wrapper {
+        background: transparent !important;
+        border: none !important;
+    }
+
+    .user-location-dot {
+      width: 20px;
+      height: 20px;
+      background-color: #5bd25a;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      box-shadow: 0 0 15px rgba(91, 210, 90, 0.6);
+      animation: pulse-green 2s infinite;
+    }
+
+    /* --- STATS MODAL STYLES --- */
+    .stats-modal-window {
+        max-width: 900px; 
+        height: 80vh; 
+    }
+    
+    .stats-modal-layout {
+        display: flex;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .stats-sidebar {
+        width: 35%;
+        border-right: 1px solid rgba(255,255,255,0.05);
+        background: rgba(0,0,0,0.2);
+        overflow-y: auto;
+        padding: 20px 0;
+    }
+
+    .stats-content-area {
+        width: 65%;
+        padding: 30px;
+        overflow-y: auto;
+        background: rgba(255,255,255,0.01);
+    }
+
+    .stats-nav-item {
+        padding: 15px 25px;
+        cursor: pointer;
+        color: #aaa;
+        font-size: 14px;
+        font-weight: 500;
+        border-left: 3px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .stats-nav-item:hover {
+        background: rgba(255,255,255,0.05);
+        color: #fff;
+    }
+
+    .stats-nav-item.active {
+        background: rgba(91, 210, 90, 0.05);
+        color: #5bd25a;
+        border-left-color: #5bd25a;
+    }
+
+    .stats-content-text h3 {
+        margin-top: 0;
+        color: #fff;
+        margin-bottom: 20px;
+        font-size: 22px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        padding-bottom: 10px;
+    }
+    
+    .stats-content-text p {
+        color: #ccc;
+        line-height: 1.7;
+        margin-bottom: 15px;
+    }
+
+    /* --- PANORAMA MODAL STYLES (GOOGLE IFRAME) --- */
+    .panorama-modal-window {
+        max-width: 95vw;
+        width: 95vw;
+        height: 90vh;
+        max-height: 90vh;
+        background: #000;
+        padding: 0;
+    }
+    
+    #panoramaIframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+    }
+
+    /* --- AI PLACE INFO MODAL --- */
+    .ai-place-info {
+        font-size: 15px;
+        line-height: 1.6;
+        color: #ddd;
+    }
+    .ai-place-info h2 {
+        font-size: 18px;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        color: #4a8cff;
+        text-transform: none;
+        opacity: 1;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        padding-bottom: 5px;
+    }
+    .ai-place-info h2:first-child { margin-top: 0; }
+
+    /* --- RATING & COMMENTS STYLES (NEW) --- */
+    .rating-widget {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        background: rgba(255,255,255,0.03);
+        padding: 12px 16px;
+        border-radius: 16px;
+        margin-bottom: 20px;
+        border: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    .rating-label {
+        font-size: 13px;
+        color: #888;
+        font-weight: 600;
+        margin-right: auto;
+    }
+
+    .rating-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.1);
+        color: #bbb;
+        padding: 8px 14px;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    
+    .rating-btn:hover {
+        background: rgba(255,255,255,0.1);
+        color: #fff;
+    }
+
+    .rating-btn.active-like {
+        background: rgba(91, 210, 90, 0.2);
+        color: #5bd25a;
+        border-color: rgba(91, 210, 90, 0.3);
+    }
+
+    .rating-btn.active-dislike {
+        background: rgba(255, 107, 107, 0.2);
+        color: #ff6b6b;
+        border-color: rgba(255, 107, 107, 0.3);
+    }
+
+    .rating-btn span.icon { font-size: 16px; }
+    
+    /* Comments Section */
+    .comments-section {
+        margin-bottom: 25px;
+    }
+
+    .btn-toggle-comments {
+        width: 100%;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.05);
+        color: #aaa;
+        padding: 10px;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 13px;
+        text-align: center;
+        margin-bottom: 15px;
+    }
+    .btn-toggle-comments:hover {
+        background: rgba(255,255,255,0.07);
+        color: #fff;
+    }
+
+    .comments-list {
+        display: none;
+        flex-direction: column;
+        gap: 15px;
+        animation: fadeIn 0.3s ease;
+    }
+    .comments-list.active { display: flex; }
+
+    .comment-item {
+        display: flex;
+        gap: 12px;
+        background: rgba(0,0,0,0.2);
+        padding: 12px;
+        border-radius: 12px;
+    }
+
+    .comment-avatar {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, #4a8cff, #5bd25a);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 14px;
+        color: #fff;
+        flex-shrink: 0;
+    }
+
+    .comment-content {
+        flex: 1;
+    }
+    .comment-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+    }
+    .comment-author {
+        font-size: 13px;
+        font-weight: 700;
+        color: #fff;
+    }
+    .comment-date {
+        font-size: 11px;
+        color: #555;
+    }
+    .comment-text {
+        font-size: 13px;
+        color: #bbb;
+        line-height: 1.5;
+    }
+
+    .comment-input-area {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+        border-top: 1px solid rgba(255,255,255,0.05);
+        padding-top: 15px;
+    }
+    .comment-input-area input {
+        margin-bottom: 0;
+        padding: 10px 14px;
+        font-size: 13px;
+    }
+    .btn-send-comment {
+        background: #4a8cff;
+        border: none;
+        color: white;
+        padding: 0 18px;
+        border-radius: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+    .btn-send-comment:hover { background: #357abd; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* Mobile */
+    @media (max-width: 768px) {
+      .page { flex-direction: column; padding: 10px; }
+      #map { height: 50vh; min-height: 300px; }
+      .panel { width: 100%; max-width: 100%; max-height: 50vh; }
+      .stats-modal-window { height: 90vh; width: 95%; }
+      .stats-modal-layout { flex-direction: column; }
+      .stats-sidebar { width: 100%; height: 35%; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
+      .stats-content-area { width: 100%; height: 65%; }
+      .panorama-modal-window { width: 100%; height: 100vh; max-height: 100vh; border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page">
+    <div id="map"></div>
+
+    <div class="panel" id="menu">
+      
+      <!-- === DETAIL VIEW === -->
+      <div id="placeDetailView">
+        <div class="detail-close-btn" id="closeDetailBtn">&times;</div>
+        <div class="detail-hero">
+          <img id="detailImg" src="" alt="Place image">
+        </div>
+        <div class="detail-body">
+          <span id="detailBadge" class="detail-badge bg-safe">Безопасно</span>
+          <h1 id="detailTitle" class="detail-title">Название</h1>
+          <span id="detailCoords" class="detail-coords">56.000, 84.000</span>
+          
+          <div class="detail-stats">
+            <div class="stat-item">
+              <span class="stat-val" id="statCrime">Низко</span>
+              <span class="stat-label">Криминогенность</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-val" id="statLight">Хорошо</span>
+              <span class="stat-label">Освещение</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-val" id="statPeople">Много</span>
+              <span class="stat-label">Людей</span>
+            </div>
+          </div>
+
+          <!-- РЕЙТИНГ -->
+          <div class="rating-widget">
+            <span class="rating-label">Оценка места:</span>
+            <button class="rating-btn" id="likeBtn">
+              <span class="icon">👍</span>
+              <span id="likeCount">0</span>
+            </button>
+            <button class="rating-btn" id="dislikeBtn">
+              <span class="icon">👎</span>
+              <span id="dislikeCount">0</span>
+            </button>
+          </div>
+
+          <div class="detail-desc" id="detailDesc">Описание...</div>
+
+          <!-- КОММЕНТАРИИ -->
+          <div class="comments-section">
+            <button class="btn-toggle-comments" id="toggleCommentsBtn">Показать комментарии (0)</button>
+            <div class="comments-list" id="commentsList">
+                <!-- Сюда будут добавляться комментарии и поле ввода -->
+            </div>
+          </div>
+
+          <div class="detail-actions">
+            <button class="btn-action secondary">Поделиться</button>
+            <button class="btn-action primary" id="btnDetailRoute">Построить маршрут</button>
+            <!-- PANORAMA BUTTON -->
+            <button class="btn-action primary" id="btnDetailPanorama" style="display:none; grid-column: span 2; margin-top: 5px;">Смотреть панораму</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- === MAIN WIDGETS === -->
+      <div class="panel-content">
+        
+        <!-- PLACE SEARCH WIDGET -->
+        <div class="widget-card place-search-widget">
+          <h2>Узнать о месте в Томске</h2>
+          <div class="search-input-group">
+            <input type="text" id="placeSearchInput" placeholder="Например: Лагерный сад" autocomplete="off">
+            <button id="placeSearchBtn" class="btn-search-ai">🔍</button>
+          </div>
+        </div>
+
+        <!-- Weather -->
+        <div class="widget-card weather-widget">
+          <div class="weather-header">
+            <h3>Погода в Томске</h3>
+            <button class="weather-refresh" id="refreshWeather" title="Обновить">⟳</button>
+          </div>
+          <div id="weather-content">
+            <div style="text-align:center; padding:10px; color:#777;">Загрузка...</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <h2>Карта безопасности</h2>
+        <div class="filter-controls">
+          <button class="filter-btn active" data-filter="all">Все места</button>
+          <button class="filter-btn" data-filter="safe">Безопасные</button>
+          <button class="filter-btn" data-filter="medium">Средние</button>
+          <button class="filter-btn" data-filter="dangerous">Опасные</button>
+        </div>
+
+        <button class="btn-eco" id="openAddPlaceModal">+ Запросить место</button>
+
+        <!-- === STATS BUTTON === -->
+        <button class="btn-secondary-style" id="openStatsModal">
+            <i class="wi wi-barometer"></i> <span>Официальная статистика, частые вопросы</span>
+        </button>
+
+        <div style="margin-top: 30px; text-align: center; color: #444; font-size: 11px;">
+          Safety Map Tomsk v5.1 (AI Search)
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ADD PLACE -->
+  <div class="modal-overlay" id="addPlaceModal">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 class="modal-title">Предложить место</h3>
+        <button class="modal-close" id="closeModalBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="modalFormContent">
+        <form id="addPlaceForm">
+          <div class="form-group">
+            <label class="form-label">Название</label>
+            <input type="text" id="placeName" placeholder="Например: Парк у реки" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Описание</label>
+            <textarea id="placeDesc" rows="3" placeholder="Что здесь особенного?" required></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Уровень безопасности</label>
+            <div style="position:relative;">
+                <select id="placeSafety" required style="appearance: none; cursor: pointer;">
+                  <option value="safe">🟢 Безопасное</option>
+                  <option value="medium">🟡 Средний</option>
+                  <option value="dangerous">🔴 Опасное</option>
+                </select>
+                <div style="position: absolute; right: 15px; top: 15px; pointer-events: none; color: #fff;">▼</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Местоположение</label>
+            <button type="button" class="btn-secondary-style" id="pickCoordBtn">
+              <i class="wi wi-crosshairs"></i> <span>Указать на карте</span>
+            </button>
+            <div class="coord-group">
+              <input type="text" id="placeLat" placeholder="Широта" readonly required>
+              <input type="text" id="placeLng" placeholder="Долгота" readonly required>
+            </div>
+            <div class="error-message" id="coordError">Пожалуйста, укажите точку на карте</div>
+          </div>
+          <button type="submit" class="btn-eco" id="submitPlaceBtn">Отправить</button>
+        </form>
+      </div>
+      <div class="modal-body hidden" id="modalSuccess">
+        <div style="text-align: center; animation: fadeIn 0.5s;">
+            <div style="font-size: 60px; margin-bottom: 20px;">🎉</div>
+            <h3 style="margin-bottom: 10px;">Отлично!</h3>
+            <p style="color: #aaa; font-size: 14px;">Ваше предложение отправлено на модерацию.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL PLACE INFO (AI SEARCH) -->
+  <div class="modal-overlay" id="placeInfoModal">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 class="modal-title" id="placeInfoTitle">Информация о месте</h3>
+        <button class="modal-close" id="closePlaceInfoModal">&times;</button>
+      </div>
+      <div class="modal-body" id="placeInfoBody">
+          <!-- Content will be injected here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL STATS -->
+  <div class="modal-overlay" id="statsModal">
+    <div class="modal-window stats-modal-window">
+        <div class="modal-header">
+            <h3 class="modal-title">Статистика и FAQ</h3>
+            <button class="modal-close" id="closeStatsModalBtn">&times;</button>
+        </div>
+        <div class="stats-modal-layout">
+            <div class="stats-sidebar" id="statsMenuContainer"></div>
+            <div class="stats-content-area">
+                <div class="stats-content-text" id="statsContentDisplay"></div>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <!-- MODAL PANORAMA (GOOGLE) -->
+  <div class="modal-overlay" id="panoramaModal">
+    <div class="modal-window panorama-modal-window">
+        <button class="modal-close" id="closePanoramaModalBtn" style="position: absolute; top: 20px; right: 20px; z-index: 10; background: rgba(0,0,0,0.5);">&times;</button>
+        <iframe id="panoramaIframe" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+  </div>
+
+  <script>
+    // --- !!! НАСТРОЙКА ИКОНКИ ГЕОЛОКАЦИИ !!! ---
+    // Замените HTML ниже на любой код (картинку, svg, div), чтобы сменить иконку.
+    // Класс 'user-location-dot' содержит CSS анимацию пульсации.
+    const USER_MARKER_HTML = '<div class="user-location-dot"></div>';
+    
+    // Пример с картинкой (раскомментируйте строку ниже, чтобы использовать свою картинку):
+    // const USER_MARKER_HTML = '<img src="https://cdn-icons-png.flaticon.com/512/25/25613.png" style="width:30px; height:30px; border-radius:50%; box-shadow: 0 0 10px #5bd25a;">';
+
+    // --- КОНФИГУРАЦИЯ ДАННЫХ (ТОЧКИ) ---
+    const placesData = [
+      {
+        id: 1,
+        coords: [56.466509, 84.94569],
+        title: "Ботанический сад ТГУ",
+        safety: "safe",
+        desc: "Университетская роща и Ботанический сад ТГУ — это настоящий «зеленый бриллиант» Томска, поражающий сочетанием сибирской монументальности и экзотической красоты оранжерейных тропиков. С точки зрения красоты это уникальное пространство, где старинная архитектура университета соседствует с редкими видами растений, создавая атмосферу академического спокойствия и эстетического восторга. Вопрос безопасности здесь решен на высшем уровне: территория сада и прилегающей рощи тщательно охраняется, освещена и закрыта для проезда транспорта, что делает прогулки максимально комфортными и безмятежными. По уровню людности место заметно отличается от шумных городских площадей: несмотря на популярность среди студентов и туристов, здесь всегда сохраняется атмосфера интимности и тишины, позволяющая насладиться природой без лишней суеты.",
+        image: "https://avatars.mds.yandex.net/get-altay/6141684/2a00000182b6bbf3dd661a9e3c441eb9414d/orig",
+        stats: { crime: "Низко", light: "Отлично", people: "Много" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771469488267!6m8!1m7!1sCAoSF0NJSE0wb2dLRUlDQWdJRDRqY0hOdHdF!2m2!1d56.46654321474109!2d84.94596292553781!3f60!4f0!5f0.7820865974627469"
+      },
+      {
+        id: 2,
+        coords: [56.495641, 84.963614],
+        title: "Белое озеро",
+        safety: "safe",
+        desc: "Белое озеро — это одна из самых живописных и узнаваемых «визитных карточек» Томска, расположенная в историческом центре города на Воскресенской горе. Это место притягивает отдыхающих своей ухоженной береговой линией, тенистыми аллеями и знаменитым фонтаном, который в летний период создает атмосферу свежести и спокойствия. С точки зрения безопасности парк вокруг озера отлично обустроен: здесь установлено современное освещение, проложены ровные пешеходные дорожки, а поблизости регулярно дежурят городские службы. Что касается людности, то Белое озеро — эпицентр городской жизни: в теплые выходные и праздничные дни здесь всегда многолюдно, гуляют семьи с детьми и молодежь, однако обширная парковая зона позволяет найти уютный уголок для отдыха даже в часы пик.",
+        image: "https://www.tvtomsk.ru/uploads/posts/2019-06/1561423889_img-20190624-wa0005-1.jpg",
+        stats: { crime: "Низко", light: "Хорошо", people: "Средне" },
+        panoramaUrl:"https://www.google.com/maps/embed?pb=!4v1771470598107!6m8!1m7!1sCAoSFkNJSE0wb2dLRUlDQWdJRHlrLW16Rmc.!2m2!1d56.49595252847874!2d84.96246328190837!3f226.88750905391564!4f9.667982880863008!5f0.7820865974627469"
+      },
+      {
+        id: 3,
+        coords: [56.47053, 84.961847],
+        title: "Буфф-сад",
+        safety: "safe",
+        desc: "Буфф-сад — это, пожалуй, самый уютный и эстетичный уголок Томска, очаровывающий своей камерной красотой и недавним обновлением в стиле деревянного зодчества. Изюминкой парка являются каскадный водопад, изящные деревянные мостики и современные ландшафтные решения, которые делают его фаворитом для атмосферных фотосессий. Вопрос безопасности здесь проработан детально: благодаря компактности территории, современному зонированию и качественному освещению, сад ощущается как защищенное и дружелюбное пространство для посетителей любого возраста. Несмотря на высокую людность (особенно на детских площадках, которые считаются одними из лучших в городе), Буфф-сад сохраняет дух спокойного семейного отдыха, где гул играющих детей гармонично сочетается с шумом воды и шелестом листвы.",
+        image: "https://avatars.mds.yandex.net/get-altay/6774966/2a000001911c1545fc084a643b36040ee7aa/XXXL",
+        stats: { crime: "Низко", light: "Хорошо", people: "Мало" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771470205562!6m8!1m7!1sCAoSF0NJSE0wb2dLRUlDQWdJRHk0OGlCa0FF!2m2!1d56.4706738597449!2d84.9626906636288!3f81.84864087609071!4f-1.5111541264460016!5f0.7820865974627469"
+      },
+      {
+        id: 4,
+        coords: [56.474264, 84.950982],
+        title: "Площадь Ново-соборная",
+        safety: "safe",
+        desc: "Площадь Новособорная — это сердце и главный общественный подиум Томска, где величие классической архитектуры встречается с яркой энергией современного города. Красота этого места неоспорима: от величественного Троицкого сквера и изящных памятников до эффектного светодинамического фонтана и сезонных ледовых городков, площадь всегда выглядит парадно и ухоженно. В плане безопасности это, пожалуй, самое защищенное пространство города — благодаря открытости территории, качественному освещению и постоянному присутствию патрульных служб здесь комфортно гулять даже поздним вечером. Что касается людности, Новособорная является абсолютным центром притяжения: здесь всегда кипит жизнь, проходят главные городские праздники и фестивали, поэтому любителям уединения будет сложно найти здесь тишину, зато искатели драйва и общения окажутся в самом эпицентре событий.",
+        image: "https://vansib.ru/upload/iblock/99b/w9tnkcx97cfd5tjbwo4iq2rqslr9nqi6.jpg",
+        stats: { crime: "Низко", light: "Отлично", people: "Очень много" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771470421853!6m8!1m7!1sCAoSF0NJSE0wb2dLRUlDQWdJRDR3dUt0bWdF!2m2!1d56.47414506956994!2d84.95094809677117!3f289.22557421222507!4f6.538539010505119!5f0.7820865974627469"
+      },
+      {
+        id: 5,
+        coords: [56.4587, 84.9532],
+        title: "Лагерный Сад",
+        safety: "safe",
+        desc: "Лагерный сад — это самое монументальное и захватывающее дух место Томска, где суровая красота сибирской природы встречается с глубоким историческим смыслом. Главная ценность парка — панорамный вид на реку Томь, открывающийся с высокого берега, и ухоженные многоуровневые террасы, которые осенью и летом превращаются в идеальную декорацию для прогулок. С точки зрения безопасности это образцовое пространство: широкие асфальтированные аллеи, отличное освещение и открытые ландшафты делают его комфортным для спортсменов и семей с колясками в любое время суток. По уровню людности Лагерный сад лидирует среди городских парков, особенно в районе мемориала и центральных входов, однако его огромная площадь и сеть лесных тропинок позволяют легко сбежать от толпы и насладиться тишиной среди вековых елей.",
+        image: "https://ic.pics.livejournal.com/kvyvy/72666956/643949/643949_original.jpg",
+        stats: { crime: "Низко", light: "Хорошо", people: "Много" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771469730119!6m8!1m7!1sCAoSF0NJSE0wb2dLRUlDQWdJRG45ZV9raVFF!2m2!1d56.45330663295587!2d84.94997042866495!3f189.02630312253626!4f9.156742135453257!5f0.7820865974627469"
+      },
+      {
+        id: 6,
+        coords: [56.486611, 84.944853],
+        title: "Набережная реки Томи",
+        safety: "safe",
+        desc: "Набережная реки Томи — это парадный фасад города, где строгость гранитных линий встречается с бескрайним простором сибирской реки. Красота этого места заключается в эффектном контрасте исторической застройки, включая величественное здание Славянского базара, и панорамных видов на речную гладь, которые особенно прекрасны в часы заката. В плане безопасности набережная является одной из самых комфортных зон: широкое променада, качественное мощение и близость к административному центру обеспечивают высокий уровень порядка и освещенности. Людность здесь распределяется неравномерно: если у памятника Чехову всегда кипит жизнь и слышна музыка уличных артистов, то на нижних ярусах и в сторону речного вокзала можно найти достаточно места для спокойного созерцания течения воды вдали от суеты.",
+        image: "images2/unnaыфвфывфывфыmed.jpg",
+        stats: { crime: "Средне", light: "Средне", people: "Мало" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771468408879!6m8!1m7!1sCAoSF0NJSE0wb2dLRUlDQWdJRGN0NXowNkFF!2m2!1d56.48669741955435!2d84.94407715100044!3f297.2200922954591!4f-5.9489044862787495!5f0.8677704455412466"
+      },
+      {
+        id: 7,
+        coords: [56.518161, 84.953844],
+        title: "Район Пролетарской",
+        safety: "medium",
+        desc: "Спальный район, много частного сектора.",
+        image: "https://picsum.photos/seed/sleep/600/400",
+        stats: { crime: "Средне", light: "Плохо", people: "Мало" }
+      },
+      {
+        id: 8,
+        coords: [56.508866, 84.936988],
+        title: "Бердская застава",
+        safety: "medium",
+        desc: "Транспортная развязка и жилые массивы.",
+        image: "https://picsum.photos/seed/berd/600/400",
+        stats: { crime: "Средне", light: "Хорошо", people: "Много" }
+      },
+      {
+        id: 9,
+        coords: [56.512426, 84.981859],
+        title: "Каштак-2",
+        safety: "dangerous",
+        desc: "Удаленный район с плохой освещенностью.",
+        image: "https://picsum.photos/seed/kashtak/600/400",
+        stats: { crime: "Высоко", light: "Плохо", people: "Мало" }
+      },
+      {
+        id: 10,
+        coords: [56.5247, 84.9923],
+        title: "Промзона Северная",
+        safety: "dangerous",
+        desc: "Пустыри и заброшенные здания.",
+        image: "https://picsum.photos/seed/prom/600/400",
+        stats: { crime: "Высоко", light: "Нет", people: "Никого" }
+      },
+      {
+        id: 11,
+        coords: [56.473924, 85.010391],
+        title: "Кулагинский сквер ",
+        safety: "safe",
+        desc: "Кулагинский сквер — место, которое воплощает концепцию «тихого микрорайона». Его красота заключается в естественности: это большой зеленый массив с высокими деревьями, который осенью и весной выглядит как настоящий лесной островок посреди жилой застройки, дополненный современными инклюзивными игровыми зонами. С точки зрения безопасности сквер считается очень комфортным для местных жителей, так как он скрыт внутри квартала между улицами Кулагина и Елизаровых, что минимизирует близость к шумным трассам и создает защищенную среду для прогулок. Людность здесь умеренная и специфическая: в основном это мамы с колясками, спортсмены на пробежке и владельцы собак, поэтому сквер никогда не кажется переполненным туристами, сохраняя приватную и спокойную атмосферу даже в праздничные дни.",
+        image: "https://i9.photo.2gis.com/photo-gallery/40a1a482-e616-4224-8027-d7117b75aa26.jpg",
+        stats: { crime: "Низко", light: "Хорошо", people: "Средне" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771469972454!6m8!1m7!1sCAoSFkNJSE0wb2dLRUlDQWdJREVrTjZrYnc.!2m2!1d56.4738896895296!2d85.01044537985962!3f49.9517184692819!4f4.18722704032777!5f0.7820865974627469"
+      },
+            {
+        id: 12,
+        coords: [56.476605, 84.999911],
+        title: "Улица Льва Толстого ",
+        safety: "medium",
+        desc: "Улица Льва Толстого — это протяженная артерия Советского района, чья красота кроется в эклектике: здесь суровые индустриальные пейзажи и гаражные кооперативы внезапно сменяются уютными островками новой застройки и тенистыми аллеями вдоль трамвайных путей. С точки зрения безопасности улица считается неоднозначной и оценивается как средняя: если в районе пересечения с проспектом Фрунзе она всегда ярко освещена и патрулируется, то в глубине частного сектора и у железной дороги в темное время суток может быть неуютно из-за слабой иллюминации и пустынных зон. Людность здесь распределена неравномерно — это оживленный транзитный узел, где жизнь кипит вокруг остановок транспорта и торговых точек, но стоит сделать шаг в сторону дворов, как шум мегаполиса сменяется тишиной старого Томска, в которой слышен лишь стук проходящего мимо трамвая.",
+        image: "https://i4.photo.2gis.com/photo-gallery/d569131a-3fa0-4ccd-bcef-685e3305ddf8.jpg",
+        stats: { crime: "Средне", light: "Средне", people: "Средне" },
+        panoramaUrl: "https://www.google.com/maps/embed?pb=!4v1771470797815!6m8!1m7!1serBC8HfEjkiqB4OZPAxVIg!2m2!1d56.48399075553072!2d84.99989156954616!3f164.48569564547978!4f1.5508112016729143!5f0.7820865974627469"
+      }
+      
+    ];
+
+    // --- КОНФИГУРАЦИЯ ГРАДИЕНТНЫХ ЗОН (BLOBS) ---
+    const safetyZones = [
+      {
+        id: 101,
+        type: 'zone',
+        safety: 'safe',
+        title: "Ленинский район",
+        desc: "Центральный и самый благоустроенный район города. Здесь сосредоточены основные административные здания, ВУЗы и культурные учреждения. Уровень безопасности высокий.",
+        image: "https://picsum.photos/seed/leninsky/800/400",
+        stats: { crime: "Низко", light: "Отлично", people: "Много" },
+        circles: [
+            { coords: [56.5200, 84.9500], radius: 1800 },
+            { coords: [56.5080, 84.9600], radius: 1500 },
+            { coords: [56.5250, 84.9400], radius: 1600 },
+            { coords: [56.5150, 84.9300], radius: 1400 },
+            { coords: [56.492192, 84.947915], radius: 600 },
+        ]
+      },
+      {
+        id: 102,
+        type: 'zone',
+        safety: 'dangerous',
+        title: "Октябрьский район",
+        desc: "Промышленный и частный сектор. Здесь много заводов и гаражных кооперативов. Освещение неравномерное, вечером рекомендуется соблюдать осторожность.",
+        image: "https://picsum.photos/seed/october/800/400",
+        stats: { crime: "Высоко", light: "Плохо", people: "Мало" },
+        circles: [
+            { coords: [56.5100, 84.9900], radius: 1900 },
+            { coords: [56.4950, 85.0150], radius: 1700 },
+            { coords: [56.5050, 85.0300], radius: 1500 }
+        ]
+      },
+      {
+        id: 103,
+        type: 'zone',
+        safety: 'medium',
+        title: "Советский район",
+        desc: "Самый большой по населению район. Смешанная застройка: есть и современные ЖК, и старый фонд. Жизнь кипит, уровень безопасности средний.",
+        image: "https://picsum.photos/seed/soviet/800/400",
+        stats: { crime: "Средне", light: "Хорошо", people: "Много" },
+        circles: [
+            { coords: [56.4850, 85.0000], radius: 1800 },
+        ]
+      },
+      {
+        id: 104,
+        type: 'zone',
+        safety: 'safe',
+        title: "Кировский район",
+        desc: "Исторический район, берег Томи. Много зеленых зон, старинная застройка. Популярен у студентов и молодежи.",
+        image: "https://picsum.photos/seed/kirovsky/800/400",
+        stats: { crime: "Низко", light: "Хорошо", people: "Много" },
+        circles: [
+            { coords: [56.4800, 84.9700], radius: 1600 },
+            { coords: [56.4650, 84.9600], radius: 1700 },
+            { coords: [56.4550, 84.9500], radius: 1500 },
+            { coords: [56.463964, 84.987791], radius: 1400 },
+            { coords: [56.459708, 84.987649], radius: 800 }
+        ]
+      }
+    ];
+
+    // --- CONFIG ---
+    const TG_BOT_TOKEN = '8189712641:AAGIv-S9CT9J24lcTqkipkZijXEwzfLkfQw'; 
+    const TG_CHAT_ID = '5269605623'; 
+    
+    let map, markers = [], zoneCircles = [], activeLayerId = null, activeLayerType = null;
+    let myIcon, myIcon2, myIcon3, myIcon4, myIcon5;
+    let routeLayer = null; 
+    let userLocationMarker = null; // Marker for user position
+
+    // --- UI HELPERS ---
+    const detailView = document.getElementById('placeDetailView');
+    const closeDetailBtn = document.getElementById('closeDetailBtn');
+
+    // --- INIT RATING & COMMENTS DATA ---
+    // Add ratings and comments to existing data without modifying original text descriptions
+    placesData.forEach(p => {
+        p.likes = Math.floor(Math.random() * 50) + 5; // Mock likes
+        p.dislikes = Math.floor(Math.random() * 10); // Mock dislikes
+        p.userVote = null; // 'like', 'dislike', or null
+        p.comments = [
+            { author: "Алексей", text: "Отличное место, был вчера!", date: "12.10.2024" },
+            { author: "Мария", text: "Очень красиво вечером.", date: "10.10.2024" }
+        ]; // Mock comments
+    });
+
+    safetyZones.forEach(z => {
+        z.likes = Math.floor(Math.random() * 100) + 10;
+        z.dislikes = Math.floor(Math.random() * 15);
+        z.userVote = null;
+        z.comments = [
+            { author: "Гость", text: "Спасибо за информацию!", date: "05.09.2024" }
+        ];
+    });
+
+    function openViewItem(item) {
+      document.getElementById('detailTitle').textContent = item.title;
+      document.getElementById('detailDesc').textContent = item.desc;
+      document.getElementById('detailImg').src = item.image;
+      
+      if(item.coords && typeof item.coords[0] === 'number') {
+        document.getElementById('detailCoords').textContent = `${item.coords[0].toFixed(5)}, ${item.coords[1].toFixed(5)}`;
+      } else {
+        document.getElementById('detailCoords').textContent = `Район: ${item.id}`;
+      }
+      
+      document.getElementById('statCrime').textContent = item.stats.crime;
+      document.getElementById('statLight').textContent = item.stats.light;
+      document.getElementById('statPeople').textContent = item.stats.people;
+
+      const badge = document.getElementById('detailBadge');
+      badge.className = 'detail-badge'; 
+      if(item.safety === 'safe') {
+        badge.classList.add('bg-safe');
+        badge.textContent = '🟢 Безопасное';
+      } else if(item.safety === 'medium') {
+        badge.classList.add('bg-medium');
+        badge.textContent = '🟡 Средний риск';
+      } else {
+        badge.classList.add('bg-dangerous');
+        badge.textContent = '🔴 Опасное';
+      }
+
+      // --- Update Rating UI ---
+      const likeBtn = document.getElementById('likeBtn');
+      const dislikeBtn = document.getElementById('dislikeBtn');
+      const likeCount = document.getElementById('likeCount');
+      const dislikeCount = document.getElementById('dislikeCount');
+
+      likeCount.textContent = item.likes;
+      dislikeCount.textContent = item.dislikes;
+
+      likeBtn.classList.remove('active-like');
+      dislikeBtn.classList.remove('active-dislike');
+
+      if (item.userVote === 'like') likeBtn.classList.add('active-like');
+      if (item.userVote === 'dislike') dislikeBtn.classList.add('active-dislike');
+
+      // --- Update Comments UI ---
+      const toggleBtn = document.getElementById('toggleCommentsBtn');
+      const commentsList = document.getElementById('commentsList');
+      
+      commentsList.classList.remove('active'); // Hide by default
+      toggleBtn.textContent = `Показать комментарии (${item.comments.length})`;
+      
+      renderComments(item.comments);
+
+      // --- Panorama Button Logic ---
+      const panoBtn = document.getElementById('btnDetailPanorama');
+      if(item.panoramaUrl) {
+          panoBtn.style.display = 'block'; 
+          panoBtn.dataset.url = item.panoramaUrl; 
+      } else {
+          panoBtn.style.display = 'none'; 
+      }
+
+      detailView.classList.add('active');
+    }
+
+    function renderComments(comments) {
+        const list = document.getElementById('commentsList');
+        list.innerHTML = ''; // Clear previous content
+
+        // Render comments
+        comments.forEach(c => {
+            const el = document.createElement('div');
+            el.className = 'comment-item';
+            el.innerHTML = `
+                <div class="comment-avatar">${c.author.charAt(0)}</div>
+                <div class="comment-content">
+                    <div class="comment-header">
+                        <span class="comment-author">${c.author}</span>
+                        <span class="comment-date">${c.date}</span>
+                    </div>
+                    <div class="comment-text">${c.text}</div>
+                </div>
+            `;
+            list.appendChild(el);
+        });
+
+        // Create Input Area (inside the list wrapper)
+        const inputDiv = document.createElement('div');
+        inputDiv.className = 'comment-input-area';
+        inputDiv.innerHTML = `
+            <input type="text" id="commentInput" placeholder="Написать комментарий...">
+            <button class="btn-send-comment" id="sendCommentBtn">➤</button>
+        `;
+        list.appendChild(inputDiv);
+    }
+
+    // --- EVENT LISTENERS FOR NEW ELEMENTS ---
+
+    // Like Button
+    document.getElementById('likeBtn').addEventListener('click', function() {
+        const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
+        if (!item || item.userVote === 'like') return;
+
+        if (item.userVote === 'dislike') {
+            item.dislikes--;
+            document.getElementById('dislikeCount').textContent = item.dislikes;
+        }
+
+        item.likes++;
+        item.userVote = 'like';
+        document.getElementById('likeCount').textContent = item.likes;
+        
+        this.classList.add('active-like');
+        document.getElementById('dislikeBtn').classList.remove('active-dislike');
+    });
+
+    // Dislike Button
+    document.getElementById('dislikeBtn').addEventListener('click', function() {
+        const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
+        if (!item || item.userVote === 'dislike') return;
+
+        if (item.userVote === 'like') {
+            item.likes--;
+            document.getElementById('likeCount').textContent = item.likes;
+        }
+
+        item.dislikes++;
+        item.userVote = 'dislike';
+        document.getElementById('dislikeCount').textContent = item.dislikes;
+
+        this.classList.add('active-dislike');
+        document.getElementById('likeBtn').classList.remove('active-like');
+    });
+
+    // Toggle Comments
+    document.getElementById('toggleCommentsBtn').addEventListener('click', function() {
+        const list = document.getElementById('commentsList');
+        const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
+        const count = item ? item.comments.length : 0;
+
+        if (list.classList.contains('active')) {
+            list.classList.remove('active');
+            this.textContent = `Показать комментарии (${count})`;
+        } else {
+            list.classList.add('active');
+            this.textContent = `Скрыть комментарии (${count})`;
+        }
+    });
+
+    // Send Comment (Delegated event because input is recreated dynamically)
+    document.getElementById('commentsList').addEventListener('click', function(e) {
+        if (e.target.id === 'sendCommentBtn') {
+            const input = document.getElementById('commentInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
+            if (!item) return;
+
+            const newComment = {
+                author: "Гость", // Could be dynamic
+                text: text,
+                date: new Date().toLocaleDateString('ru-RU')
+            };
+
+            item.comments.unshift(newComment);
+            renderComments(item.comments);
+            
+            // Update button count
+            const toggleBtn = document.getElementById('toggleCommentsBtn');
+            toggleBtn.textContent = `Скрыть комментарии (${item.comments.length})`;
+            
+            input.value = '';
+        }
+    });
+
+    function resetHighlights() {
+        document.querySelectorAll('.dg-marker-icon').forEach(el => el.classList.remove('active-marker'));
+        
+        zoneCircles.forEach(c => {
+            const zoneId = c.options.zoneId;
+            const zoneData = safetyZones.find(z => z.id === zoneId);
+            
+            if(zoneData) {
+                const color = getColorBySafety(zoneData.safety);
+                c.setStyle({
+                    fillColor: color,
+                    fillOpacity: 0.6,
+                    stroke: false,
+                    weight: 0
+                });
+            }
+        });
+    }
+
+    closeDetailBtn.addEventListener('click', () => {
+      detailView.classList.remove('active');
+      resetHighlights();
+    });
+
+    // --- PANORAMA LOGIC (GOOGLE IFRAME) ---
+    const panoramaModal = document.getElementById('panoramaModal');
+    const closePanoramaBtn = document.getElementById('closePanoramaModalBtn');
+    const panoIframe = document.getElementById('panoramaIframe');
+    const panoBtnDetail = document.getElementById('btnDetailPanorama');
+
+    function openPanorama(url) {
+        panoramaModal.classList.add('active');
+        panoIframe.src = url;
+    }
+
+    function closePanorama() {
+        panoramaModal.classList.remove('active');
+        panoIframe.src = ''; // Stop loading to save resources
+    }
+
+    panoBtnDetail.addEventListener('click', () => {
+        const url = panoBtnDetail.dataset.url;
+        if(url) openPanorama(url);
+    });
+
+    closePanoramaBtn.addEventListener('click', closePanorama);
+    panoramaModal.addEventListener('click', (e) => {
+        if(e.target === panoramaModal) closePanorama();
+    });
+
+    // --- NEW: PLACE SEARCH LOGIC ---
+    const placeSearchInput = document.getElementById('placeSearchInput');
+    const placeSearchBtn = document.getElementById('placeSearchBtn');
+    const placeInfoModal = document.getElementById('placeInfoModal');
+    const placeInfoBody = document.getElementById('placeInfoBody');
+    const placeInfoTitle = document.getElementById('placeInfoTitle');
+    const closePlaceInfoModalBtn = document.getElementById('closePlaceInfoModal');
+
+    async function searchPlaceInfo() {
+        const query = placeSearchInput.value.trim();
+        if(!query) return;
+
+        placeSearchBtn.disabled = true;
+        placeSearchInput.disabled = true;
+        placeSearchBtn.innerHTML = '⏳';
+
+        placeInfoTitle.textContent = `Анализ: ${query}`;
+        placeInfoBody.innerHTML = '<div style="text-align:center; padding: 40px; color:#888;"><div class="spinner-border text-light" role="status"><span class="visually-hidden">Loading...</span></div><br><br>Нейросеть изучает место...</div>';
+        placeInfoModal.classList.add('active');
+
+        const systemPrompt = `Ты — эксперт по безопасности и гид по Томску. Пользователь спросит про конкретное место или улицу. 
+        Твоя задача — дать краткую справку и оценить безопасность.
+        Ответь в формате HTML (без тегов html/body, просто контент), используя структуру:
+        <div class="ai-place-info">
+            <h2>Общая информация</h2>
+            <p>Краткое описание места (1-2 предложения, атмосферное). Без указа района</p>
+            
+            <h2>Оценка безопасности</h2>
+            <p>Анализ безопасности (освещение, криминогенная обстановка, трафик). 
+            Используй эмодзи для индикации уровня: 🟢 (Безопасно), 🟡 (Средне/Сложно), 🔴 (Опасно/Не рекомендуется вечером).Ленинский и Кировский районы -- безопасно, Советский- средне, Каштак и окраины -- небезопасно. Можешь иногда использовать фековую статистику из ненастоящих источников МВД и городской Думы, только чтобы она была реалистичной. Если в верхенй части Томска -- средняя или плохая безопасность. Правая часть Томска по середние -- чаще всего средняя безопасность</p>
+            
+            <h2>Советы</h2>
+            <p>2-3 конкретных совета для посетителя (где лучше гулять, чего избегать).</p>
+        </div>
+         Место: "${query}"`;
+
+        try {
+            const encodedPrompt = encodeURIComponent(systemPrompt);
+            const response = await fetch(`https://text.pollinations.ai/${encodedPrompt}`);
+            if (!response.ok) throw new Error('Network response was not ok');
+            const text = await response.text();
+            
+            // Basic sanitization not strictly needed for Pollinations but good practice if displaying HTML
+            // We trust the prompt output structure.
+            placeInfoBody.innerHTML = `<div class="ai-place-info">${text}</div>`;
+            
+        } catch (err) {
+            console.error(err);
+            placeInfoBody.innerHTML = '<div style="color:#ff6b6b; text-align:center; padding: 20px;">Ошибка при получении данных.<br>Попробуйте еще раз.</div>';
+        } finally {
+            placeSearchBtn.disabled = false;
+            placeSearchInput.disabled = false;
+            placeSearchBtn.innerHTML = '🔍';
+        }
+    }
+
+    placeSearchBtn.addEventListener('click', searchPlaceInfo);
+    placeSearchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') searchPlaceInfo();
+    });
+
+    closePlaceInfoModalBtn.addEventListener('click', () => {
+        placeInfoModal.classList.remove('active');
+    });
+    placeInfoModal.addEventListener('click', (e) => {
+        if (e.target === placeInfoModal) placeInfoModal.classList.remove('active');
+    });
+
+    // --- WEATHER ---
+    async function fetchWeather() {
+      try {
+        const r = await fetch(`https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/Tomsk,Russia?unitGroup=metric&key=RJJHZ6HXATGP7P5MTEBFUNKN9&contentType=json`);
+        const d = await r.json();
+        displayWeather(d.currentConditions);
+      } catch (e) {
+        try {
+            const r2 = await fetch('https://wttr.in/Tomsk?format=j1');
+            const d2 = await r2.json();
+            displayWttr(d2.current_condition[0]);
+        } catch(e2) { document.getElementById('weather-content').innerHTML = '<div style="color:#ff6b6b;text-align:center;">Ошибка</div>'; }
+      }
+    }
+    function displayWeather(c) {
+        document.getElementById('weather-content').innerHTML = `
+            <div class="weather-main"><div class="weather-icon"><i class="wi ${getIcon(c.conditions)}"></i></div><div class="weather-temp">${Math.round(c.temp)}°</div></div>
+            <div class="weather-details">
+                <div class="weather-detail"><i class="wi wi-thermometer"></i> ${Math.round(c.feelslike)}°</div>
+                <div class="weather-detail"><i class="wi wi-humidity"></i> ${c.humidity}%</div>
+                <div class="weather-detail"><i class="wi wi-strong-wind"></i> ${Math.round(c.windspeed)} м/с</div>
+                <div class="weather-detail"><i class="wi wi-barometer"></i> ${Math.round(c.pressure)}</div>
+            </div>`;
+    }
+    function displayWttr(c) {
+        document.getElementById('weather-content').innerHTML = `
+            <div class="weather-main"><div class="weather-icon"><i class="wi ${getIconWttr(c.weatherCode)}"></i></div><div class="weather-temp">${c.temp_C}°</div></div>
+            <div class="weather-details">
+                <div class="weather-detail"><i class="wi wi-thermometer"></i> ${c.FeelsLikeC}°</div>
+                <div class="weather-detail"><i class="wi wi-humidity"></i> ${c.humidity}%</div>
+                <div class="weather-detail"><i class="wi wi-strong-wind"></i> ${Math.round(c.windspeedKmph/3.6)} м/с</div>
+                <div class="weather-detail"><i class="wi wi-barometer"></i> ${c.pressure}</div>
+            </div>`;
+    }
+    function getIcon(t) {
+        t=t.toLowerCase();
+        if(t.includes('clear')||t.includes('sunny')) return 'wi wi-day-sunny';
+        if(t.includes('cloud')) return 'wi wi-cloudy';
+        if(t.includes('rain')) return 'wi wi-rain';
+        if(t.includes('snow')) return 'wi wi-snow';
+        if(t.includes('thunder')) return 'wi wi-thunderstorm';
+        return 'wi wi-day-sunny';
+    }
+    function getIconWttr(c) {
+        const m={'113':'wi wi-day-sunny','116':'wi wi-day-cloudy','119':'wi wi-cloudy','122':'wi wi-cloudy','176':'wi wi-day-rain','263':'wi wi-rain'};
+        return m[c]||'wi wi-day-sunny';
+    }
+
+    // --- MODAL & FORM ---
+    const modal = document.getElementById('addPlaceModal');
+    const openBtn = document.getElementById('openAddPlaceModal');
+    const closeBtn = document.getElementById('closeModalBtn');
+    const pickBtn = document.getElementById('pickCoordBtn');
+    const form = document.getElementById('addPlaceForm');
+    const content = document.getElementById('modalFormContent');
+    const success = document.getElementById('modalSuccess');
+
+    openBtn.addEventListener('click', () => { modal.classList.add('active'); resetForm(); });
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if(e.target===modal) closeModal(); });
+
+    function closeModal() {
+        modal.classList.remove('active');
+    }
+    function resetForm() {
+        form.reset(); content.classList.remove('hidden'); success.classList.add('hidden');
+        document.getElementById('coordError').style.display='none';
+    }
+
+    pickBtn.addEventListener('click', () => {
+        modal.classList.remove('active');
+        document.getElementById('map').style.cursor = 'crosshair';
+        map.once('click', e => {
+            const lat = e.latlng.lat.toFixed(6), lng = e.latlng.lng.toFixed(6);
+            document.getElementById('placeLat').value = lat;
+            document.getElementById('placeLng').value = lng;
+            document.getElementById('coordError').style.display='none';
+            document.getElementById('map').style.cursor = '';
+            modal.classList.add('active');
+        });
+    });
+
+    form.addEventListener('submit', async e => {
+        e.preventDefault();
+        if(!document.getElementById('placeLat').value) {
+            document.getElementById('coordError').style.display='block';
+            return;
+        }
+        const btn = document.getElementById('submitPlaceBtn');
+        btn.disabled = true; btn.textContent = 'Отправка...';
+        
+        try {
+            if(TG_BOT_TOKEN!=='YOUR_BOT_TOKEN_HERE') {
+                const data = {
+                    name: document.getElementById('placeName').value,
+                    desc: document.getElementById('placeDesc').value,
+                    safety: document.getElementById('placeSafety').value,
+                    coords: `${document.getElementById('placeLat').value}, ${document.getElementById('placeLng').value}`
+                };
+                const txt = `НОВОЕ МЕСТО\n\nИмя: ${data.name}\nОписание: ${data.desc}\nБезопасность: ${data.safety}\nКоординаты: ${data.coords}`;
+                const blob = new Blob([txt], {type:'text/plain'});
+                const fd = new FormData();
+                fd.append('chat_id', TG_CHAT_ID);
+                fd.append('document', blob, 'place.txt');
+                await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendDocument`, { method:'POST', body:fd });
+            } else {
+                console.log("Mock send");
+                await new Promise(r=>setTimeout(r,1000));
+            }
+            content.classList.add('hidden');
+            success.classList.remove('hidden');
+            setTimeout(closeModal, 2500);
+        } catch(err) {
+            console.error(err);
+            alert('Ошибка отправки');
+        } finally {
+            btn.disabled = false; btn.textContent = 'Отправить';
+        }
+    });
+
+    // --- STATS MODAL LOGIC ---
+    const statsModal = document.getElementById('statsModal');
+    const openStatsBtn = document.getElementById('openStatsModal');
+    const closeStatsBtn = document.getElementById('closeStatsModalBtn');
+    const statsMenuContainer = document.getElementById('statsMenuContainer');
+    const statsContentDisplay = document.getElementById('statsContentDisplay');
+
+    const statsData = [
+{
+    id: 'stat1',
+    title: 'Краткая статистика преступности в Томской области',
+    content: `
+        <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: #E0E0E0; line-height: 1.6; max-width: 650px;">
+            <p style="margin-bottom: 20px;">Криминогенная обстановка в Томской области (2024–2026) характеризуется высокими показателями. В 2024 году регион занял <span style="color: #FFD700; font-weight: bold;">7-е место в России</span> по уровню преступности.</p>
+            
+            <p style="margin-bottom: 25px;">К началу 2026 года ситуация начала стабилизироваться: общее число зарегистрированных преступлений в январе <span style="color: #00FF7F; font-weight: bold;">снизилось на 3,2%</span>.</p>
+
+            <h3 style="color: #60A5FA; border-left: 4px solid #60A5FA; padding-left: 12px; margin-bottom: 15px; font-size: 1.2rem;">Статистика по видам (2025 г.)</h3>
+            
+            <div style="background: rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 15px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 25px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <thead>
+                        <tr style="color: #60A5FA; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                            <th style="padding: 10px; text-align: left;">Категория</th>
+                            <th style="padding: 10px; text-align: center;">Кол-во</th>
+                            <th style="padding: 10px; text-align: center;">Доля</th>
+                            <th style="padding: 10px; text-align: center;">Дин.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>Против собственности</b></td>
+                            <td style="padding: 10px; text-align: center;">8 420</td>
+                            <td style="padding: 10px; text-align: center;">42,1%</td>
+                            <td style="padding: 10px; text-align: center; color: #F87171;">+6,4%</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>В сфере ИТ и связи</b></td>
+                            <td style="padding: 10px; text-align: center;">5 120</td>
+                            <td style="padding: 10px; text-align: center;">25,6%</td>
+                            <td style="padding: 10px; text-align: center; color: #F87171;">+18,7%</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>Наркотики</b></td>
+                            <td style="padding: 10px; text-align: center;">2 910</td>
+                            <td style="padding: 10px; text-align: center;">14,5%</td>
+                            <td style="padding: 10px; text-align: center; color: #F87171;">+3,5%</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>Против личности</b></td>
+                            <td style="padding: 10px; text-align: center;">2 100</td>
+                            <td style="padding: 10px; text-align: center;">10,5%</td>
+                            <td style="padding: 10px; text-align: center; color: #4ADE80;">-2,1%</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 12px 10px;"><b>Экономические</b></td>
+                            <td style="padding: 10px; text-align: center;">1 450</td>
+                            <td style="padding: 10px; text-align: center;">7,3%</td>
+                            <td style="padding: 10px; text-align: center; color: #F87171;">+4,2%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 style="color: #60A5FA; margin-bottom: 15px; font-size: 1.2rem;">Особенности:</h3>
+            <ul style="padding-left: 20px; margin-bottom: 25px;">
+                <li style="margin-bottom: 10px;"><b>Киберпреступность:</b> Каждое третье преступление в 2025 году совершалось с использованием методов ИИ и дипфейков.</li>
+                <li style="margin-bottom: 10px;"><b>Студенческий фактор:</b> Рост вовлечения молодежи в наркоторговлю в Томске как в «студенческой столице».</li>
+                <li style="margin-bottom: 10px;"><b>География:</b> До 70% правонарушений приходятся на <span style="border-bottom: 1px dashed #60A5FA;">Томск, Северск и Стрежевой</span>.</li>
+            </ul>
+            
+            <p style="font-size: 13px; color: #888; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px; font-style: italic;">
+                Высокая статистика во многом обусловлена «оздоровлением» учета и выводом латентных преступлений в официальную отчетность.
+            </p>
+        </div>
+    `
+},
+{
+    id: 'stat2',
+    title: 'Причины повышения преступности',
+    content: `
+        <div style="font-family: 'Inter', sans-serif; color: #E0E0E0; line-height: 1.7; max-width: 700px; font-size: 16px;">
+            <p style="margin-bottom: 20px;">Повышение показателей в Томской области в период 2024–2025 годов обусловлено сочетанием статистических, технологических и социальных факторов:</p>
+
+            <div style="margin-bottom: 25px; background: rgba(255, 255, 255, 0.04); padding: 18px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                <h4 style="color: #60A5FA; margin-top: 0; margin-bottom: 10px; font-size: 1.2rem;">1. «Оздоровление» статистики</h4>
+                <p style="font-size: 15px; margin: 0;">
+                    Одной из главных причин «всплеска» стал <b>бескомпромиссный прокурорский надзор</b> за полнотой регистрации заявлений. Массовая отмена незаконных отказов в возбуждении дел привела к тому, что правонарушения прошлых лет были официально учтены в статистике начала 2025 года, ликвидировав эффект «скрытой латентности».
+                </p>
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h4 style="color: #60A5FA; margin-bottom: 10px; font-size: 1.2rem;">2. Трансформация в цифровую среду</h4>
+                <p style="font-size: 16px;">
+                    Резкий рост обеспечили ИТ-преступления (<span style="color: #F87171; font-weight: bold;">+18,7%</span>). Томск, как центр с развитой цифровой инфраструктурой, стал мишенью для киберпреступников, использующих методы ИИ и дипфейки. Каждое третье преступление в регионе теперь совершается дистанционно.
+                </p>
+            </div>
+
+            <ul style="padding-left: 20px; font-size: 15px; color: #D1D5DB;">
+                <li style="margin-bottom: 15px;">
+                    <b style="color: #fff;">Посягательства на собственность:</b> Кражи и мошенничества стали драйвером роста, заняв <span style="color: #60A5FA;">42,1%</span> во всей структуре.
+                </li>
+                <li style="margin-bottom: 15px;">
+                    <b style="color: #fff;">Наркоугроза и молодежный фактор:</b> Отмечен рост вовлечения студентов в незаконный оборот в качестве «курьеров-закладчиков», что связано с агрессивным маркетингом интернет-площадок.
+                </li>
+                <li style="margin-bottom: 15px;">
+                    <b style="color: #fff;">Выявляемость в экономике:</b> Рост числа дел в лесозаготовке связан с внедрением <b>систем космического мониторинга</b>, фиксирующих незаконные рубки в режиме реального времени.
+                </li>
+            </ul>
+
+            <div style="margin-top: 30px; padding: 15px; background: rgba(96, 165, 250, 0.1); border-radius: 10px; border-left: 4px solid #60A5FA;">
+                <p style="margin: 0; font-size: 14px; font-style: italic;">
+                    Таким образом, высокая статистика региона во многом объясняется <b>«оздоровлением» учета</b> и переходом преступности в трудноконтролируемую цифровую сферу.
+                </p>
+            </div>
+        </div>
+    `
+},
+{
+    id: 'stat3',
+    title: 'Технологии ИИ в борьбе с преступностью',
+    content: `
+        <div style="font-family: 'Inter', sans-serif; color: #E0E0E0; line-height: 1.7; max-width: 700px; font-size: 16px;">
+            <p style="margin-bottom: 20px;">Использование технологий ИИ и аналитических систем в Томской области в 2024–2025 годах стал ключевым ответом на рост киберпреступности. Основные направления:</p>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #60A5FA; margin-bottom: 8px; font-size: 1.2rem;">1. Интеллектуальное видеонаблюдение</h4>
+                <div style="background: rgba(255, 255, 255, 0.03); padding: 15px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                    <p style="margin: 0; font-size: 15px;">
+                        В рамках программы <b>«Безопасный город»</b> установлено более <span style="color: #4ADE80; font-weight: bold;">2500 камер</span> с аналитическими модулями. Это позволило снизить преступность в общественных местах на <b>7,4%</b> к началу 2026 года.
+                    </p>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #60A5FA; margin-bottom: 8px; font-size: 1.2rem;">2. Противодействие киберугрозам</h4>
+                <ul style="padding-left: 20px; font-size: 15px; list-style-type: '🛡️ ';">
+                    <li style="margin-bottom: 10px; padding-left: 5px;">Выявление <b>аномальных транзакций</b> в режиме реального времени.</li>
+                    <li style="margin-bottom: 10px; padding-left: 5px;">Распознавание признаков социальной инженерии и <b>дипфейков</b>.</li>
+                    <li style="margin-bottom: 10px; padding-left: 5px;">Снижение ущерба от ИТ-преступлений на <span style="color: #60A5FA;">15–20%</span> за счет совместных разработок вузов и МВД.</li>
+                </ul>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #60A5FA; margin-bottom: 8px; font-size: 1.2rem;">3. Экологический мониторинг</h4>
+                <p style="font-size: 16px;">
+                    Интеграция систем дистанционного мониторинга и <b>космической съемки</b> позволила выявить 320 преступлений в сфере лесозаготовки. Система фиксирует незаконные рубки мгновенно, создавая доказательную базу для прокуратуры.
+                </p>
+            </div>
+
+            <div style="margin-top: 30px; padding: 18px; background: rgba(96, 165, 250, 0.1); border-radius: 12px; border-left: 4px solid #60A5FA;">
+                <p style="margin: 0; font-size: 14px; font-style: italic;">
+                    ИИ в регионе выступает не только инструментом раскрытия, но и средством <b>превентивного мониторинга</b> в цифровой и экологической сферах.
+                </p>
+            </div>
+        </div>
+    `
+},
+{
+    id: 'stat4',
+    title: 'Топ-безопасных районов (статистика)',
+    content: `
+        <div style="font-family: 'Inter', sans-serif; color: #E0E0E0; line-height: 1.7; max-width: 750px; font-size: 16px;">
+            <p style="margin-bottom: 20px;">Криминогенная обстановка в районах Томска неоднородна. Традиционно наиболее напряженная ситуация фиксируется в <b>Ленинском</b> и <b>Советском</b> районах.</p>
+
+            <h4 style="color: #60A5FA; margin-bottom: 12px; font-size: 1.2rem;">Рейтинг районов по уровню опасности:</h4>
+            
+            <div style="background: rgba(255, 255, 255, 0.03); border-radius: 12px; padding: 15px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 25px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+                    <thead>
+                        <tr style="color: #60A5FA; border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
+                            <th style="padding: 10px; text-align: left;">Район</th>
+                            <th style="padding: 10px; text-align: center;">Тип угроз</th>
+                            <th style="padding: 10px; text-align: center;">Статистика</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>Ленинский</b></td>
+                            <td style="padding: 10px; text-align: center;">Квартирные кражи</td>
+                            <td style="padding: 10px; text-align: center; color: #F87171;">Рост 78,9%</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>Советский</b></td>
+                            <td style="padding: 10px; text-align: center;">Уличная преступность</td>
+                            <td style="padding: 10px; text-align: center; color: #F87171;">Рост 71,8%</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <td style="padding: 12px 10px;"><b>Октябрьский</b></td>
+                            <td style="padding: 10px; text-align: center;">Разбойные нападения</td>
+                            <td style="padding: 10px; text-align: center;">15 случаев</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 12px 10px;"><b>Кировский</b></td>
+                            <td style="padding: 10px; text-align: center;">Уличные грабежи</td>
+                            <td style="padding: 10px; text-align: center; color: #4ADE80;">Снижение 20,9%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display: grid; gap: 15px; margin-bottom: 25px;">
+                <div style="background: rgba(248, 113, 113, 0.05); border-left: 4px solid #F87171; padding: 15px; border-radius: 4px;">
+                    <b style="color: #F87171;">Ленинский район:</b> Самый высокий уровень преступности (2802 случая на 100к населения). Будьте бдительны в вечернее время.
+                </div>
+                <div style="background: rgba(96, 165, 250, 0.05); border-left: 4px solid #60A5FA; padding: 15px; border-radius: 4px;">
+                    <b style="color: #60A5FA;">Кировский район:</b> Признан лучшим по динамике снижения преступности, но из-за большого числа вузов здесь фиксируется треть всех «пьяных» правонарушений.
+                </div>
+            </div>
+
+            <h4 style="color: #60A5FA; margin-bottom: 10px;">Рекомендации по безопасности:</h4>
+            <ul style="padding-left: 20px; font-size: 16px;">
+                <li style="margin-bottom: 10px;">Избегайте неосвещенных зон в <b>Ленинском</b> и <b>Октябрьском</b> районах после 22:00.</li>
+                <li style="margin-bottom: 10px;">В общественных местах полагайтесь на систему <b>«Безопасный город»</b> — ищите зоны с установленными камерами (их более 2500 по городу).</li>
+                <li style="margin-bottom: 10px;">В <b>Советском районе</b> проявляйте осторожность в местах массового скопления людей из-за риска уличных конфликтов.</li>
+            </ul>
+        </div>
+    `
+}
+    ];
+
+    function initStatsModal() {
+        statsMenuContainer.innerHTML = '';
+        statsData.forEach((item, index) => {
+            const div = document.createElement('div');
+            div.className = `stats-nav-item ${index === 0 ? 'active' : ''}`;
+            div.textContent = item.title;
+            div.dataset.id = item.id;
+            div.onclick = () => showStatContent(item.id);
+            statsMenuContainer.appendChild(div);
+        });
+
+        if(statsData.length > 0) {
+            showStatContent(statsData[0].id);
+        }
+    }
+
+    function showStatContent(id) {
+        const item = statsData.find(d => d.id === id);
+        if(!item) return;
+
+        document.querySelectorAll('.stats-nav-item').forEach(el => {
+            el.classList.remove('active');
+            if(el.dataset.id === id) el.classList.add('active');
+        });
+
+        statsContentDisplay.style.opacity = 0;
+        setTimeout(() => {
+            statsContentDisplay.innerHTML = `
+                <h3>${item.title}</h3>
+                <div class="content-body">${item.content}</div>
+            `;
+            statsContentDisplay.style.opacity = 1;
+        }, 200);
+    }
+
+    openStatsBtn.addEventListener('click', () => {
+        statsModal.classList.add('active');
+    });
+
+    closeStatsBtn.addEventListener('click', () => {
+        statsModal.classList.remove('active');
+    });
+
+    statsModal.addEventListener('click', (e) => {
+        if(e.target === statsModal) statsModal.classList.remove('active');
+    });
+
+    initStatsModal();
+
+    // --- HELPERS ---
+    function getColorBySafety(safety) {
+        if(safety === 'safe') return '#5bd25a';
+        if(safety === 'medium') return '#ffd32a';
+        if(safety === 'dangerous') return '#ff6b6b';
+        return '#888';
+    }
+
+    // --- ROUTING LOGIC ---
+    function buildRoute(startLat, startLng, endLat, endLng) {
+        if (routeLayer) {
+            map.removeLayer(routeLayer);
+            routeLayer = null;
+        }
+
+        const startPoint = [startLat, startLng];
+        const endPoint = [endLat, endLng];
+
+        try {
+            routeLayer = DG.routing([startPoint, endPoint], {
+                locale: 'ru',
+                vehicle: 'car'
+            }).addTo(map);
+
+            routeLayer.on('routesfound', function(e) {
+                map.fitBounds(e.target.getBounds(), { padding: [50, 50] });
+                alert("Маршрут построен по дорогам");
+            });
+
+            routeLayer.on('error', function(e) {
+                console.warn("Routing API error:", e);
+                alert("Не удалось построить маршрут по дорогам. Прокладывается прямая линия.");
+                buildFallbackLine(startPoint, endPoint);
+            });
+            
+        } catch (err) {
+            console.error("Critical routing error:", err);
+            buildFallbackLine(startPoint, endPoint);
+        }
+    }
+
+    function buildFallbackLine(start, end) {
+        if (routeLayer) map.removeLayer(routeLayer);
+        
+        routeLayer = DG.polyline([start, end], {
+            color: '#5bd25a',
+            weight: 5,
+            opacity: 0.8,
+            dashArray: '10, 10'
+        }).addTo(map);
+
+        map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+    }
+
+    // --- USER LOCATION LOGIC ---
+    function startUserTracking() {
+        if (!navigator.geolocation) {
+            console.warn("Geolocation is not supported by your browser");
+            return;
+        }
+
+        const userIcon = DG.divIcon({
+            className: 'user-location-wrapper', // Custom class to override default leaflet styles
+            html: USER_MARKER_HTML,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+
+        // Use watchPosition for live updates
+        navigator.geolocation.watchPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+
+                if (!userLocationMarker) {
+                    userLocationMarker = DG.marker([lat, lng], { icon: userIcon }).addTo(map);
+                    // Optional: Center map on user location on first load
+                    // map.setView([lat, lng], 15); 
+                } else {
+                    userLocationMarker.setLatLng([lat, lng]);
+                }
+            },
+            (error) => {
+                console.warn("ERROR(" + error.code + "): " + error.message);
+                // Could show a toast message to user here: "Enable geolocation"
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 5000,
+                maximumAge: 0
+            }
+        );
+    }
+
+    // --- MAP INIT ---
+    DG.then(() => {
+        map = DG.map('map', {
+            center: [56.466509, 84.94569], zoom: 13,
+            key: 'eda58029-767a-4c2d-ab0c-0b304e66c1ff',
+        });
+
+        // Start tracking user location immediately
+        startUserTracking();
+
+        map.createPane('blobs');
+        const blobPane = map.getPane('blobs');
+        blobPane.classList.add('leaflet-blob-pane');
+        
+        function handleZoomFade() {
+            const currentZoom = map.getZoom();
+            const fadeThreshold = 15.5; 
+            
+            if (currentZoom >= fadeThreshold) {
+                blobPane.style.opacity = '0';
+            } else {
+                blobPane.style.opacity = ''; 
+            }
+        }
+        
+        map.on('zoomend', handleZoomFade);
+        handleZoomFade(); 
+
+        const mk = (u,w,h)=>DG.icon({iconUrl:u,iconSize:[w,h],iconAnchor:[w/2,h/2],popupAnchor:[0,-h/2]});
+        myIcon = mk('images2/EcoIcon.png', 55, 55);
+        myIcon2 = mk('images2/EcoIcon2.png', 55, 55);
+        myIcon3 = mk('images2/EcoIcon3.png', 55, 55);
+        myIcon4 = mk('images2/EcoIcon.png', 88, 88);
+        myIcon5 = mk('images2/EcoIcon5.png', 44, 44);
+
+        placesData.forEach(place => {
+            let icon = myIcon;
+            if(place.safety === 'medium') icon = myIcon2;
+            if(place.safety === 'dangerous') icon = myIcon3;
+            if(place.title.includes('Центр')) icon = myIcon4;
+
+            const marker = DG.marker(place.coords, {icon: icon, safetyType: place.safety});
+            
+            marker.on('click', (e) => {
+              resetHighlights();
+              openViewItem(place);
+              activeLayerId = place.id;
+              activeLayerType = 'marker';
+              const el = e.target._icon;
+              if(el) el.classList.add('active-marker');
+            });
+
+            marker.bindPopup(`<b>${place.title}</b>`);
+            marker.addTo(map);
+            markers.push(marker);
+        });
+
+        safetyZones.forEach(zone => {
+            const color = getColorBySafety(zone.safety);
+            
+            zone.circles.forEach(circleData => {
+                const circle = DG.circle(circleData.coords, {
+                    radius: circleData.radius,
+                    color: color,
+                    fillColor: color,
+                    fillOpacity: 0.6,
+                    stroke: false,
+                    pane: 'blobs',
+                    zoneId: zone.id,
+                    safetyType: zone.safety
+                });
+
+                circle.on('click', (e) => {
+                    DG.DomEvent.stopPropagation(e);
+                    resetHighlights();
+
+                    openViewItem(zone);
+                    activeLayerId = zone.id;
+                    activeLayerType = 'zone';
+
+                    zoneCircles.forEach(c => {
+                        if(c.options.zoneId === zone.id) {
+                            c.setStyle({ fillOpacity: 0.9 });
+                        }
+                    });
+                });
+
+                circle.on('mouseover', e => {
+                    if(activeLayerId !== zone.id) {
+                        e.target.setStyle({ fillOpacity: 0.8 });
+                    }
+                });
+                circle.on('mouseout', e => {
+                    if(activeLayerId !== zone.id) {
+                        e.target.setStyle({ fillOpacity: 0.6 });
+                    }
+                });
+
+                circle.addTo(map);
+                zoneCircles.push(circle);
+            });
+        });
+
+        const btnDetailRoute = document.getElementById('btnDetailRoute');
+        
+        btnDetailRoute.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                alert("Геолокация не поддерживается вашим браузером");
+                return;
+            }
+
+            btnDetailRoute.textContent = "Построение...";
+            btnDetailRoute.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const userLat = position.coords.latitude;
+                    const userLng = position.coords.longitude;
+
+                    let targetCoords = null;
+                    
+                    if (activeLayerType === 'marker') {
+                        const place = placesData.find(p => p.id === activeLayerId);
+                        if (place) targetCoords = place.coords;
+                    } else if (activeLayerType === 'zone') {
+                        const zone = safetyZones.find(z => z.id === activeLayerId);
+                        if (zone && zone.circles.length > 0) {
+                            targetCoords = zone.circles[0].coords;
+                        }
+                    }
+
+                    if (targetCoords) {
+                        buildRoute(userLat, userLng, targetCoords[0], targetCoords[1]);
+                    } else {
+                        alert("Не удалось определить цель маршрута");
+                    }
+                    
+                    btnDetailRoute.textContent = "Построить маршрут";
+                    btnDetailRoute.disabled = false;
+                },
+                (error) => {
+                    alert("Не удалось определить ваше местоположение. Проверьте настройки GPS.");
+                    btnDetailRoute.textContent = "Построить маршрут";
+                    btnDetailRoute.disabled = false;
+                    console.error(error);
+                }
+            );
+        });
+    });
+
+    // --- FILTERS ---
+    function filter(t) {
+        if(t==='all') {
+            markers.forEach(m=>m.setOpacity(1));
+            zoneCircles.forEach(c=>c.setStyle({fillOpacity:0.6, opacity: 1}));
+        } else {
+            markers.forEach(m=>m.setOpacity(0.2));
+            zoneCircles.forEach(c=>c.setStyle({fillOpacity:0.1, opacity: 0.3}));
+            
+            markers.forEach(m=>{if(m.options.safetyType===t)m.setOpacity(1)});
+            zoneCircles.forEach(c=>{if(c.options.safetyType===t)c.setStyle({fillOpacity:0.6, opacity: 1})});
+        }
+        document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+        document.querySelector(`.filter-btn[data-filter="${t}"]`).classList.add('active');
+    }
+    document.querySelectorAll('.filter-btn').forEach(b=>b.addEventListener('click',()=>filter(b.getAttribute('data-filter'))));
+    window.addEventListener('resize',()=>{if(map)map.invalidateSize()});
+    document.addEventListener('DOMContentLoaded',()=>{fetchWeather();document.getElementById('refreshWeather').onclick=fetchWeather});
+  </script>\
+</body>
+</html>
