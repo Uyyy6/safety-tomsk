@@ -798,7 +798,7 @@
         </button>
 
         <div style="margin-top: 30px; text-align: center; color: #444; font-size: 11px;">
-          Safety Map Tomsk v5.1 (AI Search)
+          Safety Map Tomsk v5.2 (Firebase Integrated)
         </div>
       </div>
     </div>
@@ -893,15 +893,29 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+    import { getDatabase, ref, onValue, runTransaction, set, get } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+    
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyAlROL8vD4JEqBGK5ZAAJ90LGPwIy8y2xo",
+      authDomain: "safety-tomsk-95582.firebaseapp.com",
+      projectId: "safety-tomsk-95582",
+      storageBucket: "safety-tomsk-95582.firebasestorage.app",
+      messagingSenderId: "301944091401",
+      appId: "1:301944091401:web:82a90f64c43b65787699d8",
+      databaseURL: "https://safety-tomsk-95582-default-rtdb.firebaseio.com" // Убедитесь, что этот URL правильный в настройках вашего проекта
+    };
+  
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
     // --- !!! НАСТРОЙКА ИКОНКИ ГЕОЛОКАЦИИ !!! ---
-    // Замените HTML ниже на любой код (картинку, svg, div), чтобы сменить иконку.
-    // Класс 'user-location-dot' содержит CSS анимацию пульсации.
     const USER_MARKER_HTML = '<div class="user-location-dot"></div>';
     
-    // Пример с картинкой (раскомментируйте строку ниже, чтобы использовать свою картинку):
-    // const USER_MARKER_HTML = '<img src="https://cdn-icons-png.flaticon.com/512/25/25613.png" style="width:30px; height:30px; border-radius:50%; box-shadow: 0 0 10px #5bd25a;">';
-
     // --- КОНФИГУРАЦИЯ ДАННЫХ (ТОЧКИ) ---
     const placesData = [
       {
@@ -1092,32 +1106,170 @@
     let map, markers = [], zoneCircles = [], activeLayerId = null, activeLayerType = null;
     let myIcon, myIcon2, myIcon3, myIcon4, myIcon5;
     let routeLayer = null; 
-    let userLocationMarker = null; // Marker for user position
+    let userLocationMarker = null;
 
     // --- UI HELPERS ---
     const detailView = document.getElementById('placeDetailView');
     const closeDetailBtn = document.getElementById('closeDetailBtn');
 
-    // --- INIT RATING & COMMENTS DATA ---
-    // Add ratings and comments to existing data without modifying original text descriptions
+    // --- FIREBASE LOGIC ---
+    
+    // Инициализация данных по умолчанию (0 лайков) и комментарии (оставляем мок)
     placesData.forEach(p => {
-        p.likes = Math.floor(Math.random() * 50) + 5; // Mock likes
-        p.dislikes = Math.floor(Math.random() * 10); // Mock dislikes
-        p.userVote = null; // 'like', 'dislike', or null
+        p.likes = 0; 
+        p.dislikes = 0; 
+        p.userVote = null; 
         p.comments = [
             { author: "Алексей", text: "Отличное место, был вчера!", date: "12.10.2024" },
             { author: "Мария", text: "Очень красиво вечером.", date: "10.10.2024" }
-        ]; // Mock comments
+        ];
     });
 
     safetyZones.forEach(z => {
-        z.likes = Math.floor(Math.random() * 100) + 10;
-        z.dislikes = Math.floor(Math.random() * 15);
+        z.likes = 0;
+        z.dislikes = 0;
         z.userVote = null;
         z.comments = [
             { author: "Гость", text: "Спасибо за информацию!", date: "05.09.2024" }
         ];
     });
+
+    // Синхронизация данных с Firebase
+    function syncWithFirebase() {
+        // Слушаем изменения для Places
+        const placesRef = ref(db, 'places');
+        onValue(placesRef, (snapshot) => {
+            const data = snapshot.val();
+            placesData.forEach(p => {
+                if (data && data[p.id]) {
+                    p.likes = data[p.id].likes || 0;
+                    p.dislikes = data[p.id].dislikes || 0;
+                } else {
+                    // Если в базе нет данных, ставим 0
+                    p.likes = 0;
+                    p.dislikes = 0;
+                }
+            });
+            // Обновляем UI если карточка открыта
+            if (activeLayerType === 'marker') {
+                const currentItem = placesData.find(i => i.id === activeLayerId);
+                if (currentItem) updateRatingUI(currentItem);
+            }
+        });
+
+        // Слушаем изменения для Zones
+        const zonesRef = ref(db, 'zones');
+        onValue(zonesRef, (snapshot) => {
+            const data = snapshot.val();
+            safetyZones.forEach(z => {
+                if (data && data[z.id]) {
+                    z.likes = data[z.id].likes || 0;
+                    z.dislikes = data[z.id].dislikes || 0;
+                } else {
+                    z.likes = 0;
+                    z.dislikes = 0;
+                }
+            });
+            // Обновляем UI если карточка открыта
+            if (activeLayerType === 'zone') {
+                const currentItem = safetyZones.find(i => i.id === activeLayerId);
+                if (currentItem) updateRatingUI(currentItem);
+            }
+        });
+    }
+
+    // Функция для обновления UI рейтинга
+    function updateRatingUI(item) {
+        const likeCount = document.getElementById('likeCount');
+        const dislikeCount = document.getElementById('dislikeCount');
+        const likeBtn = document.getElementById('likeBtn');
+        const dislikeBtn = document.getElementById('dislikeBtn');
+
+        likeCount.textContent = item.likes;
+        dislikeCount.textContent = item.dislikes;
+
+        likeBtn.classList.remove('active-like');
+        dislikeBtn.classList.remove('active-dislike');
+
+        // Восстанавливаем состояние кнопок из LocalStorage
+        const voteKey = `vote_${item.id}`;
+        const savedVote = localStorage.getItem(voteKey);
+        if (savedVote === 'like') {
+            likeBtn.classList.add('active-like');
+            item.userVote = 'like';
+        } else if (savedVote === 'dislike') {
+            dislikeBtn.classList.add('active-dislike');
+            item.userVote = 'dislike';
+        }
+    }
+
+    // Функция обработки клика по лайку/дизлайку
+    function handleVote(voteType) {
+        // Ищем элемент в объединенном массиве
+        const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
+        if (!item) return;
+
+        const dbPath = activeLayerType === 'marker' ? `places/${item.id}` : `zones/${item.id}`;
+        const dbRef = ref(db, dbPath);
+        
+        // Получаем текущий голос пользователя из LocalStorage
+        const voteKey = `vote_${item.id}`;
+        const currentVote = localStorage.getItem(voteKey);
+
+        // Логика переключения
+        let likeDelta = 0;
+        let dislikeDelta = 0;
+
+        if (voteType === 'like') {
+            if (currentVote === 'like') {
+                // Снимаем лайк
+                likeDelta = -1;
+                localStorage.removeItem(voteKey);
+            } else if (currentVote === 'dislike') {
+                // Переключаем с дизлайка на лайк
+                likeDelta = 1;
+                dislikeDelta = -1;
+                localStorage.setItem(voteKey, 'like');
+            } else {
+                // Ставим лайк
+                likeDelta = 1;
+                localStorage.setItem(voteKey, 'like');
+            }
+        } else if (voteType === 'dislike') {
+            if (currentVote === 'dislike') {
+                // Снимаем дизлайк
+                dislikeDelta = -1;
+                localStorage.removeItem(voteKey);
+            } else if (currentVote === 'like') {
+                // Переключаем с лайка на дизлайк
+                likeDelta = -1;
+                dislikeDelta = 1;
+                localStorage.setItem(voteKey, 'dislike');
+            } else {
+                // Ставим дизлайк
+                dislikeDelta = 1;
+                localStorage.setItem(voteKey, 'dislike');
+            }
+        }
+
+        // Обновляем Firebase с помощью транзакции для безопасности
+        runTransaction(dbRef, (currentData) => {
+            if (currentData === null) {
+                // Если записи нет, создаем
+                return {
+                    likes: likeDelta > 0 ? 1 : 0,
+                    dislikes: dislikeDelta > 0 ? 1 : 0
+                };
+            }
+            return {
+                likes: (currentData.likes || 0) + likeDelta,
+                dislikes: (currentData.dislikes || 0) + dislikeDelta
+            };
+        });
+    }
+
+    // Запускаем синхронизацию
+    syncWithFirebase();
 
     function openViewItem(item) {
       document.getElementById('detailTitle').textContent = item.title;
@@ -1148,19 +1300,7 @@
       }
 
       // --- Update Rating UI ---
-      const likeBtn = document.getElementById('likeBtn');
-      const dislikeBtn = document.getElementById('dislikeBtn');
-      const likeCount = document.getElementById('likeCount');
-      const dislikeCount = document.getElementById('dislikeCount');
-
-      likeCount.textContent = item.likes;
-      dislikeCount.textContent = item.dislikes;
-
-      likeBtn.classList.remove('active-like');
-      dislikeBtn.classList.remove('active-dislike');
-
-      if (item.userVote === 'like') likeBtn.classList.add('active-like');
-      if (item.userVote === 'dislike') dislikeBtn.classList.add('active-dislike');
+      updateRatingUI(item);
 
       // --- Update Comments UI ---
       const toggleBtn = document.getElementById('toggleCommentsBtn');
@@ -1218,38 +1358,12 @@
 
     // Like Button
     document.getElementById('likeBtn').addEventListener('click', function() {
-        const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
-        if (!item || item.userVote === 'like') return;
-
-        if (item.userVote === 'dislike') {
-            item.dislikes--;
-            document.getElementById('dislikeCount').textContent = item.dislikes;
-        }
-
-        item.likes++;
-        item.userVote = 'like';
-        document.getElementById('likeCount').textContent = item.likes;
-        
-        this.classList.add('active-like');
-        document.getElementById('dislikeBtn').classList.remove('active-dislike');
+        handleVote('like');
     });
 
     // Dislike Button
     document.getElementById('dislikeBtn').addEventListener('click', function() {
-        const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
-        if (!item || item.userVote === 'dislike') return;
-
-        if (item.userVote === 'like') {
-            item.likes--;
-            document.getElementById('likeCount').textContent = item.likes;
-        }
-
-        item.dislikes++;
-        item.userVote = 'dislike';
-        document.getElementById('dislikeCount').textContent = item.dislikes;
-
-        this.classList.add('active-dislike');
-        document.getElementById('likeBtn').classList.remove('active-like');
+        handleVote('dislike');
     });
 
     // Toggle Comments
@@ -2064,6 +2178,6 @@
     document.querySelectorAll('.filter-btn').forEach(b=>b.addEventListener('click',()=>filter(b.getAttribute('data-filter'))));
     window.addEventListener('resize',()=>{if(map)map.invalidateSize()});
     document.addEventListener('DOMContentLoaded',()=>{fetchWeather();document.getElementById('refreshWeather').onclick=fetchWeather});
-  </script>\
+  </script>
 </body>
 </html>
