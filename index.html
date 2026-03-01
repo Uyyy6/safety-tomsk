@@ -675,8 +675,29 @@
         font-weight: 600;
         cursor: pointer;
         transition: 0.2s;
+        min-width: 45px;
     }
     .btn-send-comment:hover { background: #357abd; }
+    .btn-send-comment:disabled { background: #555; cursor: not-allowed; }
+
+    /* Toast Notification */
+    .toast-notification {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #333;
+        color: #fff;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .toast-notification.show { opacity: 1; }
 
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -798,11 +819,14 @@
         </button>
 
         <div style="margin-top: 30px; text-align: center; color: #444; font-size: 11px;">
-          Safety Map Tomsk v5.1 (AI Search + Firebase)
+          Safety Map Tomsk v5.2 (Firebase Comments + IP Auth)
         </div>
       </div>
     </div>
   </div>
+  
+  <!-- Toast Notification -->
+  <div id="toast" class="toast-notification">Сообщение</div>
 
   <!-- MODAL ADD PLACE -->
   <div class="modal-overlay" id="addPlaceModal">
@@ -896,8 +920,22 @@
 <script type="module">
   // Import the functions you need from the SDKs you need
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-  // Добавляем импорт Firestore
-  import { getFirestore, doc, setDoc, getDoc, updateDoc, increment, onSnapshot } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+  // Добавляем импорт Firestore и необходимые функции
+  import { 
+    getFirestore, 
+    doc, 
+    setDoc, 
+    getDoc, 
+    updateDoc, 
+    increment, 
+    onSnapshot, 
+    collection, 
+    addDoc, 
+    query, 
+    orderBy, 
+    serverTimestamp,
+    where
+  } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
   // Your web app's Firebase configuration
   const firebaseConfig = {
@@ -913,11 +951,31 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   
-  // Ссылка на коллекцию рейтингов
+  // Ссылки на коллекции
   const RATINGS_COLLECTION = "place_ratings";
+  const COMMENTS_COLLECTION = "comments";
+  const USERS_COLLECTION = "users_ip"; // Коллекция для хранения имен по IP
 
   // --- !!! НАСТРОЙКА ИКОНКИ ГЕОЛОКАЦИИ !!! ---
   const USER_MARKER_HTML = '<div class="user-location-dot"></div>';
+  
+  // --- ГОЛОСОВАНИЕ И ПОЛЬЗОВАТЕЛЬ ---
+  let currentUser = {
+      ip: null,
+      name: null
+  };
+  const COOLDOWN_TIME = 25000; // 25 секунд
+  const CHAR_LIMIT = 250;
+
+  // Toast Function
+  function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      setTimeout(() => {
+          toast.classList.remove('show');
+      }, 3000);
+  }
     
   // --- КОНФИГУРАЦИЯ ДАННЫХ (ТОЧКИ) ---
   const placesData = [
@@ -1110,6 +1168,7 @@
   let myIcon, myIcon2, myIcon3, myIcon4, myIcon5;
   let routeLayer = null; 
   let userLocationMarker = null; // Marker for user position
+  let unsubscribeComments = null; // Listener for comments
 
   // --- UI HELPERS ---
   const detailView = document.getElementById('placeDetailView');
@@ -1122,20 +1181,14 @@
     placesData.forEach(p => {
         p.likes = 0;
         p.dislikes = 0;
-        p.userVote = null; // 'like', 'dislike', or null
-        p.comments = [
-            { author: "Алексей", text: "Отличное место, был вчера!", date: "12.10.2024" },
-            { author: "Мария", text: "Очень красиво вечером.", date: "10.10.2024" }
-        ]; // Mock comments
+        p.userVote = null; 
+        // Комментарии удалили из локального объекта, они теперь в DB
     });
 
     safetyZones.forEach(z => {
         z.likes = 0;
         z.dislikes = 0;
         z.userVote = null;
-        z.comments = [
-            { author: "Гость", text: "Спасибо за информацию!", date: "05.09.2024" }
-        ];
     });
   }
 
@@ -1264,7 +1317,163 @@
     if (item.userVote === 'dislike') dislikeBtn.classList.add('active-dislike');
   }
 
-  // --- END FIREBASE LOGIC ---
+  // --- END FIREBASE RATINGS LOGIC ---
+  
+  // --- FIREBASE COMMENTS LOGIC ---
+
+  async function initUserSystem() {
+      try {
+          // Получаем IP через публичный сервис
+          const res = await fetch('https://api.ipify.org?format=json');
+          const data = await res.json();
+          currentUser.ip = data.ip;
+      } catch (e) {
+          // Если не удалось получить IP (например, localhost), генерируем уникальный ID
+          console.warn("Could not fetch IP, using fallback ID");
+          currentUser.ip = localStorage.getItem('fallback_ip') || 'user_' + Math.random().toString(36).substr(2, 9);
+          localStorage.setItem('fallback_ip', currentUser.ip);
+      }
+
+      // Проверяем, есть ли уже имя для этого IP в Firestore
+      if (currentUser.ip) {
+          const userRef = doc(db, USERS_COLLECTION, currentUser.ip);
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+              currentUser.name = userSnap.data().name;
+          }
+      }
+  }
+
+  function listenForComments(placeId) {
+      if (unsubscribeComments) unsubscribeComments(); // Отписываемся от предыдущего места
+
+      const q = query(
+          collection(db, COMMENTS_COLLECTION), 
+          where("placeId", "==", placeId), 
+          orderBy("timestamp", "desc")
+      );
+
+      unsubscribeComments = onSnapshot(q, (snapshot) => {
+          const comments = [];
+          snapshot.forEach(doc => {
+              comments.push(doc.data());
+          });
+          renderCommentsUI(comments, placeId);
+      }, (error) => {
+          console.error("Error listening to comments: ", error);
+          // Частая ошибка - нужен индекс в Firestore. Firebase дает ссылку на создание индекса в консоли.
+          const list = document.getElementById('commentsList');
+          list.innerHTML = '<div style="color:#ff6b6b; font-size:12px; text-align:center;">Ошибка загрузки комментариев (требуется индекс БД)</div>';
+      });
+  }
+
+  function renderCommentsUI(comments, placeId) {
+      const list = document.getElementById('commentsList');
+      const toggleBtn = document.getElementById('toggleCommentsBtn');
+      
+      toggleBtn.textContent = `Показать комментарии (${comments.length})`;
+
+      let html = '';
+      comments.forEach(c => {
+          html += `
+              <div class="comment-item">
+                  <div class="comment-avatar">${c.author.charAt(0)}</div>
+                  <div class="comment-content">
+                      <div class="comment-header">
+                          <span class="comment-author">${c.author}</span>
+                          <span class="comment-date">${c.date}</span>
+                      </div>
+                      <div class="comment-text">${c.text}</div>
+                  </div>
+              </div>
+          `;
+      });
+
+      // Поле ввода всегда внизу
+      html += `
+          <div class="comment-input-area">
+              <input type="text" id="commentInput" placeholder="Ваш комментарий..." maxlength="${CHAR_LIMIT}">
+              <button class="btn-send-comment" id="sendCommentBtn">➤</button>
+          </div>
+      `;
+
+      list.innerHTML = html;
+
+      // Если имя пользователя не известно, меняем плейсхолдер
+      if (!currentUser.name) {
+          const input = document.getElementById('commentInput');
+          if(input) {
+              input.placeholder = "Введите имя и нажмите отправить";
+          }
+      }
+  }
+
+  async function handleSendComment() {
+      const input = document.getElementById('commentInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      // 1. Проверка кулдауна
+      const lastTime = localStorage.getItem('last_comment_time');
+      if (lastTime) {
+          const diff = Date.now() - parseInt(lastTime);
+          if (diff < COOLDOWN_TIME) {
+              const rem = Math.ceil((COOLDOWN_TIME - diff) / 1000);
+              showToast(`Подождите ${rem} сек. перед следующим комментарием`);
+              return;
+          }
+      }
+
+      // 2. Если нет имени, сохраняем текст как имя
+      if (!currentUser.name) {
+          if (text.length > 20) {
+              showToast("Имя слишком длинное (макс 20 символов)");
+              return;
+          }
+          
+          // Сохраняем имя в DB
+          try {
+              const userRef = doc(db, USERS_COLLECTION, currentUser.ip);
+              await setDoc(userRef, { name: text });
+              currentUser.name = text;
+              showToast(`Имя "${text}" сохранено! Теперь можете писать комментарии.`);
+              input.value = '';
+              input.placeholder = "Ваш комментарий...";
+              return; // Выходим, чтобы пользователь написал сам комментарий
+          } catch (e) {
+              console.error(e);
+              showToast("Ошибка сохранения имени");
+              return;
+          }
+      }
+
+      // 3. Отправка комментария
+      if (text.length > CHAR_LIMIT) {
+          showToast(`Максимум ${CHAR_LIMIT} символов`);
+          return;
+      }
+
+      const newComment = {
+          placeId: activeLayerId,
+          author: currentUser.name,
+          text: text,
+          date: new Date().toLocaleDateString('ru-RU'),
+          timestamp: serverTimestamp(),
+          ip: currentUser.ip // Сохраняем IP для модерации
+      };
+
+      try {
+          await addDoc(collection(db, COMMENTS_COLLECTION), newComment);
+          input.value = '';
+          localStorage.setItem('last_comment_time', Date.now().toString());
+          showToast("Комментарий отправлен");
+      } catch (e) {
+          console.error(e);
+          showToast("Ошибка отправки комментария");
+      }
+  }
+
+  // --- END COMMENTS LOGIC ---
 
   function openViewItem(item) {
     document.getElementById('detailTitle').textContent = item.title;
@@ -1297,14 +1506,10 @@
     // --- Update Rating UI ---
     updateRatingUI(item);
 
-    // --- Update Comments UI ---
-    const toggleBtn = document.getElementById('toggleCommentsBtn');
+    // --- Comments Setup ---
     const commentsList = document.getElementById('commentsList');
-    
-    commentsList.classList.remove('active'); // Hide by default
-    toggleBtn.textContent = `Показать комментарии (${item.comments.length})`;
-    
-    renderComments(item.comments);
+    commentsList.classList.remove('active'); 
+    listenForComments(item.id); // Load comments from DB
 
     // --- Panorama Button Logic ---
     const panoBtn = document.getElementById('btnDetailPanorama');
@@ -1316,37 +1521,6 @@
     }
 
     detailView.classList.add('active');
-  }
-
-  function renderComments(comments) {
-      const list = document.getElementById('commentsList');
-      list.innerHTML = ''; // Clear previous content
-
-      // Render comments
-      comments.forEach(c => {
-          const el = document.createElement('div');
-          el.className = 'comment-item';
-          el.innerHTML = `
-              <div class="comment-avatar">${c.author.charAt(0)}</div>
-              <div class="comment-content">
-                  <div class="comment-header">
-                      <span class="comment-author">${c.author}</span>
-                      <span class="comment-date">${c.date}</span>
-                  </div>
-                  <div class="comment-text">${c.text}</div>
-              </div>
-          `;
-          list.appendChild(el);
-      });
-
-      // Create Input Area (inside the list wrapper)
-      const inputDiv = document.createElement('div');
-      inputDiv.className = 'comment-input-area';
-      inputDiv.innerHTML = `
-          <input type="text" id="commentInput" placeholder="Написать комментарий...">
-          <button class="btn-send-comment" id="sendCommentBtn">➤</button>
-      `;
-      list.appendChild(inputDiv);
   }
 
   // --- EVENT LISTENERS FOR NEW ELEMENTS ---
@@ -1364,44 +1538,29 @@
   // Toggle Comments
   document.getElementById('toggleCommentsBtn').addEventListener('click', function() {
       const list = document.getElementById('commentsList');
-      const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
-      const count = item ? item.comments.length : 0;
+      // Текст кнопки обновляется автоматически в renderCommentsUI
 
       if (list.classList.contains('active')) {
           list.classList.remove('active');
-          this.textContent = `Показать комментарии (${count})`;
       } else {
           list.classList.add('active');
-          this.textContent = `Скрыть комментарии (${count})`;
       }
   });
 
-  // Send Comment (Delegated event because input is recreated dynamically)
+  // Send Comment (Delegated event)
   document.getElementById('commentsList').addEventListener('click', function(e) {
       if (e.target.id === 'sendCommentBtn') {
-          const input = document.getElementById('commentInput');
-          const text = input.value.trim();
-          if (!text) return;
-
-          const item = [...placesData, ...safetyZones].find(p => p.id === activeLayerId);
-          if (!item) return;
-
-          const newComment = {
-              author: "Гость", // Could be dynamic
-              text: text,
-              date: new Date().toLocaleDateString('ru-RU')
-          };
-
-          item.comments.unshift(newComment);
-          renderComments(item.comments);
-          
-          // Update button count
-          const toggleBtn = document.getElementById('toggleCommentsBtn');
-          toggleBtn.textContent = `Скрыть комментарии (${item.comments.length})`;
-          
-          input.value = '';
+          handleSendComment();
       }
   });
+  
+  // Enter key for comment
+  document.getElementById('commentsList').addEventListener('keypress', function(e) {
+      if (e.target.id === 'commentInput' && e.key === 'Enter') {
+          handleSendComment();
+      }
+  });
+
 
   function resetHighlights() {
       document.querySelectorAll('.dg-marker-icon').forEach(el => el.classList.remove('active-marker'));
@@ -1425,6 +1584,7 @@
   closeDetailBtn.addEventListener('click', () => {
     detailView.classList.remove('active');
     resetHighlights();
+    if (unsubscribeComments) unsubscribeComments(); // Stop listening when closed
   });
 
   // --- PANORAMA LOGIC (GOOGLE IFRAME) ---
@@ -2180,6 +2340,9 @@
       
       // Initialize default values first
       initDefaultRatings();
+      
+      // Init User System (IP & Name)
+      await initUserSystem();
       
       // Then load data from Firebase
       await loadRatingsFromDB();
