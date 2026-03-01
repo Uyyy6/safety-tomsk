@@ -819,7 +819,7 @@
         </button>
 
         <div style="margin-top: 30px; text-align: center; color: #444; font-size: 11px;">
-          Safety Map Tomsk v5.2 (Firebase Comments + IP Auth)
+          Safety Map Tomsk v5.3 (UI Flow Update)
         </div>
       </div>
     </div>
@@ -876,6 +876,20 @@
             <h3 style="margin-bottom: 10px;">Отлично!</h3>
             <p style="color: #aaa; font-size: 14px;">Ваше предложение отправлено на модерацию.</p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ENTER NAME (NEW) -->
+  <div class="modal-overlay" id="nameModal">
+    <div class="modal-window" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Введите имя</h3>
+      </div>
+      <div class="modal-body">
+        <p style="color:#aaa; font-size:14px; margin-bottom:15px;">Чтобы оставить комментарий, укажите как вас зовут. Это имя сохранится для будущих комментариев.</p>
+        <input type="text" id="nameInput" placeholder="Ваше имя" maxlength="20" style="margin-bottom: 15px;">
+        <button class="btn-eco" id="submitNameBtn">Сохранить и отправить</button>
       </div>
     </div>
   </div>
@@ -966,6 +980,9 @@
   };
   const COOLDOWN_TIME = 25000; // 25 секунд
   const CHAR_LIMIT = 250;
+  
+  // Переменная для хранения текста комментария, пока пользователь вводит имя
+  let pendingCommentText = null;
 
   // Toast Function
   function showToast(message) {
@@ -1398,16 +1415,30 @@
       `;
 
       list.innerHTML = html;
+  }
 
-      // Если имя пользователя не известно, меняем плейсхолдер
-      if (!currentUser.name) {
-          const input = document.getElementById('commentInput');
-          if(input) {
-              input.placeholder = "Введите имя и нажмите отправить";
-          }
+  // Функция отправки комментария в БД
+  async function postCommentToDB(text) {
+      const newComment = {
+          placeId: activeLayerId,
+          author: currentUser.name,
+          text: text,
+          date: new Date().toLocaleDateString('ru-RU'),
+          timestamp: serverTimestamp(),
+          ip: currentUser.ip 
+      };
+
+      try {
+          await addDoc(collection(db, COMMENTS_COLLECTION), newComment);
+          localStorage.setItem('last_comment_time', Date.now().toString());
+          showToast("Комментарий отправлен");
+      } catch (e) {
+          console.error(e);
+          showToast("Ошибка отправки комментария");
       }
   }
 
+  // Основная функция обработки нажатия "Отправить"
   async function handleSendComment() {
       const input = document.getElementById('commentInput');
       const text = input.value.trim();
@@ -1424,54 +1455,67 @@
           }
       }
 
-      // 2. Если нет имени, сохраняем текст как имя
-      if (!currentUser.name) {
-          if (text.length > 20) {
-              showToast("Имя слишком длинное (макс 20 символов)");
-              return;
-          }
-          
-          // Сохраняем имя в DB
-          try {
-              const userRef = doc(db, USERS_COLLECTION, currentUser.ip);
-              await setDoc(userRef, { name: text });
-              currentUser.name = text;
-              showToast(`Имя "${text}" сохранено! Теперь можете писать комментарии.`);
-              input.value = '';
-              input.placeholder = "Ваш комментарий...";
-              return; // Выходим, чтобы пользователь написал сам комментарий
-          } catch (e) {
-              console.error(e);
-              showToast("Ошибка сохранения имени");
-              return;
-          }
-      }
-
-      // 3. Отправка комментария
+      // 2. Проверка длины
       if (text.length > CHAR_LIMIT) {
           showToast(`Максимум ${CHAR_LIMIT} символов`);
           return;
       }
 
-      const newComment = {
-          placeId: activeLayerId,
-          author: currentUser.name,
-          text: text,
-          date: new Date().toLocaleDateString('ru-RU'),
-          timestamp: serverTimestamp(),
-          ip: currentUser.ip // Сохраняем IP для модерации
-      };
+      // 3. Если нет имени -> Открываем модальное окно
+      if (!currentUser.name) {
+          pendingCommentText = text; // Сохраняем текст
+          input.value = ''; // Очищаем инпут, чтобы не смущать
+          document.getElementById('nameModal').classList.add('active');
+          document.getElementById('nameInput').focus();
+          return;
+      }
+
+      // 4. Если имя есть -> Отправляем
+      input.value = ''; // Очищаем сразу для UX
+      await postCommentToDB(text);
+  }
+
+  // Обработка сохранения имени
+  const nameModal = document.getElementById('nameModal');
+  const nameInput = document.getElementById('nameInput');
+  const submitNameBtn = document.getElementById('submitNameBtn');
+
+  submitNameBtn.addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+          showToast("Введите имя");
+          return;
+      }
+      if (name.length > 20) {
+          showToast("Имя слишком длинное (макс 20 символов)");
+          return;
+      }
 
       try {
-          await addDoc(collection(db, COMMENTS_COLLECTION), newComment);
-          input.value = '';
-          localStorage.setItem('last_comment_time', Date.now().toString());
-          showToast("Комментарий отправлен");
+          // Сохраняем имя в DB
+          const userRef = doc(db, USERS_COLLECTION, currentUser.ip);
+          await setDoc(userRef, { name: name });
+          currentUser.name = name;
+          
+          nameModal.classList.remove('active');
+          showToast(`Привет, ${name}!`);
+
+          // Если был отложенный комментарий, отправляем его
+          if (pendingCommentText) {
+              await postCommentToDB(pendingCommentText);
+              pendingCommentText = null;
+          }
       } catch (e) {
           console.error(e);
-          showToast("Ошибка отправки комментария");
+          showToast("Ошибка сохранения имени");
       }
-  }
+  });
+
+  // Enter в модальном окне имени
+  nameInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') submitNameBtn.click();
+  });
+
 
   // --- END COMMENTS LOGIC ---
 
@@ -1642,7 +1686,7 @@
           
           <h2>Оценка безопасности</h2>
           <p>Анализ безопасности (освещение, криминогенная обстановка, трафик). 
-          Используй эмодзи для индикации уровня: 🟢 (Безопасно), 🟡 (Средне/Сложно), 🔴 (Опасно/Не рекомендуется вечером).Ленинский и Кировский районы -- безопасно, Советский- средне, Каштак и окраины -- небезопасно. Можешь иногда использовать фековую статистику из ненастоящих источников МВД и городской Думы, только чтобы она была реалистичной. Если в верхенй части Томска -- средняя или плохая безопасность. Правая часть Томска по середние -- чаще всего средняя безопасность</p>
+          Используй эмодзи для индикации уровня: 🟢 (Безопасно), 🟡 (Средне/Сложно), 🔴 (Опасно/Не рекомендуется вечером).Ленинский и Кировский районы -- безопасно, Советский- средне, Каштак и окраины -- небезопасно. Можешь иногда использовать фековую статистику из ненастоящих источников МВД и городской Думы, только чтобы она была реалистичной. Если в верхенй части Томска -- средняя или плохая безопасность. Правая часть Томска по середлине -- чаще всего средняя безопасность</p>
           
           <h2>Советы</h2>
           <p>2-3 конкретных совета для посетителя (где лучше гулять, чего избегать).</p>
