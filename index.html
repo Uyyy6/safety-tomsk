@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Safety - Карта Томска (AI Search)</title>
+  <title>Safety-Tomsk</title>
+  <link rel="icon" type="image/png" href="images2/Logo3.png">
 
   <!-- 2GIS loader -->
   <script src="https://maps.api.2gis.ru/2.0/loader.js?pkg=full"></script>
@@ -701,25 +702,112 @@
 
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
+
     /* Mobile */
+     /* Mobile */
     @media (max-width: 768px) {
-      .page { flex-direction: column; padding: 10px; }
-      #map { height: 50vh; min-height: 300px; }
-      .panel { width: 100%; max-width: 100%; max-height: 50vh; }
+      .page { flex-direction: column; padding: 0; position: relative; height: 100vh; width: 100vw; overflow: hidden; }
+      
+      /* Карта на весь экран */
+      #map { 
+        position: absolute; 
+        top: 0; left: 0; right: 0; bottom: 0; 
+        height: 100vh; 
+        width: 100vw; 
+        border-radius: 0; 
+        z-index: 1;
+      }
+
+      /* Панель меню - ПЛОТНАЯ */
+      .panel {
+        position: fixed !important;
+        left: 0 !important; right: 0 !important; bottom: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 85vh !important;
+        max-height: 85vh !important;
+        z-index: 100 !important;
+        border-radius: 24px 24px 0 0 !important;
+        
+        transform: translateY(100%); 
+        transition: transform 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+        
+        /* --- ВОТ ЗДЕСЬ ИСПРАВЛЕНИЕ --- */
+        background: #1e1e24 !important; /* Сплошной темный фон */
+        backdrop-filter: none !important; /* Убираем размытие */
+        -webkit-backdrop-filter: none !important; /* Убираем размытие для Safari */
+      }
+
+      /* Класс для открытого меню */
+      .panel.mobile-open {
+        transform: translateY(0);
+      }
+
+      /* Кнопка открытия (гамбургер) */
+      .mobile-menu-btn {
+        display: flex !important;
+        position: fixed;
+        bottom: 20px; 
+        right: 20px;
+        width: 56px; height: 56px;
+        border-radius: 50%;
+        background: #5bd25a; color: #111;
+        align-items: center; justify-content: center;
+        font-size: 24px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 99; 
+        border: none; cursor: pointer;
+      }
+      .mobile-menu-btn:hover { transform: scale(1.1); }
+      .mobile-menu-btn.hidden { opacity: 0; pointer-events: none; transform: scale(0.8); }
+
+      /* Кнопка закрытия ВНУТРИ меню */
+      .mobile-close-btn {
+        display: block !important;
+        width: 100%;
+        padding: 12px;
+        background: rgba(255,255,255,0.05);
+        border: none;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        color: #ff6b6b;
+        font-size: 16px;
+        font-weight: 600;
+        text-align: center;
+        cursor: pointer;
+        margin-bottom: 10px;
+        border-radius: 0;
+      }
+      .mobile-close-btn:active { background: rgba(255,255,255,0.1); }
+      
+      /* Адаптация контента */
+      .detail-hero { height: 200px; }
+      .panel-content { padding-bottom: 40px; }
+      
+      /* Модальные окна */
       .stats-modal-window { height: 90vh; width: 95%; }
       .stats-modal-layout { flex-direction: column; }
       .stats-sidebar { width: 100%; height: 35%; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); }
       .stats-content-area { width: 100%; height: 65%; }
       .panorama-modal-window { width: 100%; height: 100vh; max-height: 100vh; border-radius: 0; }
     }
+
+    /* ГЛОБАЛЬНЫЕ СТИЛИ (скрываем мобильные элементы на ПК) */
+    .mobile-drag-handle { display: none; }
+    .mobile-menu-btn { display: none; }
+    .mobile-close-btn { display: none; }
   </style>
 </head>
 <body>
 
   <div class="page">
+      
+    <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
     <div id="map"></div>
 
     <div class="panel" id="menu">
+      
+      
       
       <!-- === DETAIL VIEW === -->
       <div id="placeDetailView">
@@ -781,7 +869,8 @@
 
       <!-- === MAIN WIDGETS === -->
       <div class="panel-content">
-        
+        <button class="mobile-close-btn" id="mobileCloseBtn">✕ Закрыть меню</button>
+    
         <!-- PLACE SEARCH WIDGET -->
         <div class="widget-card place-search-widget">
           <h2>Узнать о месте в Томске</h2>
@@ -1797,6 +1886,11 @@
   pickBtn.addEventListener('click', () => {
       modal.classList.remove('active');
       document.getElementById('map').style.cursor = 'crosshair';
+      
+      // Скрываем зоны безопасности (blobs)
+      const blobPane = map.getPane('blobs');
+      if(blobPane) blobPane.style.display = 'none';
+
       map.once('click', e => {
           const lat = e.latlng.lat.toFixed(6), lng = e.latlng.lng.toFixed(6);
           document.getElementById('placeLat').value = lat;
@@ -1804,6 +1898,9 @@
           document.getElementById('coordError').style.display='none';
           document.getElementById('map').style.cursor = '';
           modal.classList.add('active');
+          
+          // Возвращаем зоны безопасности
+          if(blobPane) blobPane.style.display = '';
       });
   });
 
@@ -2393,6 +2490,72 @@
       
       console.log("App initialized with Firebase data.");
   });
-  </script>\
+
+    pickBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      document.getElementById('map').style.cursor = 'crosshair';
+      
+      // Скрываем зоны безопасности (blobs)
+      const blobPane = map.getPane('blobs');
+      if(blobPane) blobPane.style.display = 'none';
+
+      map.once('click', e => {
+          const lat = e.latlng.lat.toFixed(6), lng = e.latlng.lng.toFixed(6);
+          document.getElementById('placeLat').value = lat;
+          document.getElementById('placeLng').value = lng;
+          document.getElementById('coordError').style.display='none';
+          document.getElementById('map').style.cursor = '';
+          modal.classList.add('active');
+          
+          // Возвращаем зоны безопасности
+          if(blobPane) blobPane.style.display = '';
+      });
+  });
+
+  // --- MOBILE UI LOGIC (SIMPLIFIED) ---
+  const panel = document.getElementById('menu');
+  const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+  const mobileCloseBtn = document.getElementById('mobileCloseBtn');
+  
+  // Функция переключения панели
+  function toggleMobilePanel(open) {
+      if (open) {
+          panel.classList.add('mobile-open');
+          if(mobileMenuBtn) mobileMenuBtn.classList.add('hidden');
+      } else {
+          panel.classList.remove('mobile-open');
+          if(mobileMenuBtn) mobileMenuBtn.classList.remove('hidden');
+          
+          // Если меню закрывается, закрываем и открытый Detail View (для чистоты)
+          const detailView = document.getElementById('placeDetailView');
+          if (detailView.classList.contains('active')) {
+              // Программно кликаем на кнопку закрытия детали, чтобы сбросить состояние
+              document.getElementById('closeDetailBtn').click();
+          }
+      }
+  }
+
+  // Слушатели событий
+  if(mobileMenuBtn) {
+      mobileMenuBtn.addEventListener('click', () => toggleMobilePanel(true));
+  }
+  
+  if(mobileCloseBtn) {
+      mobileCloseBtn.addEventListener('click', () => toggleMobilePanel(false));
+  }
+
+  // Если открылся Detail View (информация о месте), автоматически открываем панель
+  const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+          if (mutation.target.id === 'placeDetailView') {
+              if (mutation.target.classList.contains('active')) {
+                  if (window.innerWidth <= 768) toggleMobilePanel(true);
+              }
+          }
+      });
+  });
+  observer.observe(document.getElementById('placeDetailView'), { attributes: true });
+  observer.observe(document.getElementById('placeDetailView'), { attributes: true });
+  </script>
 </body>
 </html>
