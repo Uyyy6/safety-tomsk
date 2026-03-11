@@ -45,16 +45,18 @@
       max-width: 40%;
       background: rgba(30,30,35,0.7);
       backdrop-filter: blur(20px);
-      border-radius: 24px;
+      overflow-x: hidden;
+      
+      /* --- ИЗМЕНЕНИЯ ЗДЕСЬ --- */
+      order: -1; /* Перемещает панель влево */
+      border-radius: 0 24px 24px 0; /* Скругляем только правые углы */
+      box-shadow: 10px 0 40px rgba(0,0,0,0.4); /* Тень справа от панели */
+      /* ----------------------- */
+      
       padding: 0; 
       box-sizing: border-box;
       border: 1px solid rgba(255,255,255,0.08);
-      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
-      overflow-y: auto;
-      max-height: calc(100vh - 50px);
-      display: flex;
-      flex-direction: column;
-      position: relative;
+      /* ... остальные свойства оставьте как были ... */
     }
 
     /* Скроллбар */
@@ -80,10 +82,10 @@
       height: 100%;
       background: #1e1e24;
       z-index: 50;
-      transform: translateX(100%); /* Hidden by default */
+      transform: translateX(-100%); /* Скрыто слева */
       transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
       overflow-y: auto;
-      border-radius: 24px;
+      border-radius: 0 24px 24px 0; /* Скругляем правые углы для красоты */
     }
     
     #placeDetailView.active {
@@ -389,11 +391,13 @@
     /* Map Marker Animation */
     .dg-marker-icon.active-marker { transform: scale(1.3); filter: drop-shadow(0 0 10px rgba(255,255,255,0.5)); transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 1000 !important; }
     
+
+    
     /* --- STYLES FOR GRADIENT BLOBS (NEW) --- */
     .leaflet-blob-pane {
         filter: blur(40px); 
         mix-blend-mode: hard-light; 
-        opacity: 0.8;
+        opacity: 0.6;
         z-index: 200; 
         transition: opacity 0.5s ease-in-out; 
     }
@@ -701,6 +705,8 @@
     .toast-notification.show { opacity: 1; }
 
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    
 
 
     /* Mobile */
@@ -1680,9 +1686,41 @@
       }
   }
 
+    // --- ФУНКЦИЯ МОДЕРАЦИИ КОММЕНТАРИЕВ (ВСТАВИТЬ ПЕРЕД postCommentToDB) ---
+  // --- ОБНОВЛЕННАЯ ФУНКЦИЯ МОДЕРАЦИИ ---
+  async function moderateComment(text) {
+      // Строгая инструкция: проверяем мат, спам И бессмысленность
+      const prompt = `You are a strict content moderator. Analyze the following user comment.
+      Reject the comment if it falls into ANY of these categories:
+      1. Profanity or offensive language.
+      2. Spam or advertisements.
+      3. Meaningless gibberish, random keysmashes (e.g. "sdfgsdfg"), or nonsense without semantic meaning.
+      
+      Approve ONLY if it is a coherent, meaningful message in Russian or English.
+      
+      Reply ONLY with the word "APPROVE" or "REJECT". Do not add punctuation or explanations.
+      
+      Comment: "${text}"`;
+
+      try {
+          const response = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`);
+          const result = await response.text();
+          const decision = result.trim().toUpperCase();
+          
+          console.log("AI Moderation Result:", decision); 
+          
+          return decision === 'APPROVE';
+      } catch (e) {
+          console.error("Ошибка модерации:", e);
+          return true; // Если сервис упал, пропускаем (чтобы не ломать用户体验)
+      }
+  }
+
   // Основная функция обработки нажатия "Отправить"
+  // Основная функция обработки нажатия "Отправить" (ЗАМЕНИТЬ СУЩЕСТВУЮЩУЮ)
   async function handleSendComment() {
       const input = document.getElementById('commentInput');
+      const sendBtn = document.getElementById('sendCommentBtn');
       const text = input.value.trim();
       if (!text) return;
 
@@ -1705,16 +1743,31 @@
 
       // 3. Если нет имени -> Открываем модальное окно
       if (!currentUser.name) {
-          pendingCommentText = text; // Сохраняем текст
-          input.value = ''; // Очищаем инпут, чтобы не смущать
+          pendingCommentText = text; 
+          input.value = ''; 
           document.getElementById('nameModal').classList.add('active');
           document.getElementById('nameInput').focus();
           return;
       }
 
-      // 4. Если имя есть -> Отправляем
-      input.value = ''; // Очищаем сразу для UX
-      await postCommentToDB(text);
+      // --- НОВАЯ ЛОГИКА: Модерация перед отправкой ---
+      sendBtn.disabled = true;
+      sendBtn.textContent = '⏳'; // Индикатор загрузки
+      showToast("Проверка комментария...");
+
+      const isApproved = await moderateComment(text);
+
+      sendBtn.disabled = false;
+      sendBtn.textContent = '➤';
+
+      if (isApproved) {
+          // 4. Если имя есть и проверка пройдена -> Отправляем
+          input.value = ''; // Очищаем поле только после успешной проверки
+          await postCommentToDB(text);
+      } else {
+          showToast("Комментарий не прошел проверку на цензуру");
+          // Текст в поле ввода оставляем, чтобы пользователь мог исправить
+      }
   }
 
   // Обработка сохранения имени
@@ -1742,9 +1795,19 @@
           nameModal.classList.remove('active');
           showToast(`Привет, ${name}!`);
 
-          // Если был отложенный комментарий, отправляем его
+          // Если был отложенный комментарий, проверяем и отправляем
           if (pendingCommentText) {
-              await postCommentToDB(pendingCommentText);
+              showToast("Проверка комментария...");
+              const isApproved = await moderateComment(pendingCommentText);
+              
+              if (isApproved) {
+                  await postCommentToDB(pendingCommentText);
+              } else {
+                  showToast("Комментарий не прошел проверку на цензуру");
+                  // Восстанавливаем текст в поле ввода, чтобы пользователь мог исправить
+                  const input = document.getElementById('commentInput');
+                  if(input) input.value = pendingCommentText;
+              }
               pendingCommentText = null;
           }
       } catch (e) {
@@ -1928,7 +1991,32 @@
           
           <h2>Оценка безопасности</h2>
           <p>Анализ безопасности (освещение, криминогенная обстановка, трафик). 
-          Используй эмодзи для индикации уровня: 🟢 (Безопасно), 🟡 (Средне/Сложно), 🔴 (Опасно/Не рекомендуется вечером).Ленинский и Кировский районы -- безопасно, Советский- средне, Каштак и окраины -- небезопасно. Можешь иногда использовать фековую статистику из ненастоящих источников МВД и городской Думы, только чтобы она была реалистичной. Если в верхенй части Томска -- средняя или плохая безопасность. Правая часть Томска по середлине -- чаще всего средняя безопасность</p>
+            Ты — эксперт-аналитик по городской безопасности Томска. Твоя задача: анализировать локации, которые вводит пользователь, и выдавать вердикт на основе строгой иерархии и правил безопасности.
+
+### 1. Цветовая индикация (обязательно):
+🟢 (Безопасно) — Центр, освещенные улицы, студенческие зоны.
+🟡 (Средне/Сложно) — Жилые массивы, бизнес-центры с темными дворами.
+🔴 (Опасно/Не рекомендуется) — Окраины, промзоны, плохо освещенные районы.
+
+### 2. Географическая логика (Твоя база знаний):
+- Кировский район: Всегда 🟢. Это студенческий центр (ТГУ, ТПУ), здесь всегда патрули и люди.
+- Ленинский район: Всегда 🟢. (Особенно пр. Ленина и центральные улицы).
+- Советский район: 🟡. Считается зоной среднего риска из-за сложной планировки дворов. 
+  *ИСКЛЮЧЕНИЕ:* Главные площади (Ново-Соборная, пл. Ленина, Губернаторский квартал) — всегда 🟢.
+- Каштак, Иркутский тракт, Спичфабрика и любые окраины: Всегда 🔴.
+- "Верхняя часть" (Юг, район Лагерного сада и выше): 🟡 или 🔴 в зависимости от удаленности от пр. Ленина.
+- "Правая часть Томска по середине" (район ул. Кулагина, Октябрьский рынок): Всегда 🟡.
+
+### 3. Формат ответа (строго):
+Вердикт: [Эмодзи] [Уровень]
+Статистика: Приведи одну "реалистичную" цифру, ссылаясь на фейковые отчеты МВД по Томской области или городскую Думу (например: "Согласно отчету МВД №412, уровень уличных правонарушений здесь снизился на 4.2%").
+Описание: Кратко объясни, почему такой уровень (освещение, контингент, близость к вузам).
+Рекомендация: Дай совет (например: "Можно гулять ночью" или "Держитесь главных дорог").
+
+### 4. Дополнительные правила:
+- Если пользователь вводит популярное общественное место (Лагерный сад, Горсад, Ново-Соборная), приоритет — 🟢.
+- Используй томский сленг или упоминай локальные ориентиры (например, "система "Безопасный город", "близость к СибГМУ").
+- Если локация находится на границе, выбирай более строгий уровень.</p>
           
           <h2>Советы</h2>
           <p>2-3 конкретных совета для посетителя (где лучше гулять, чего избегать).</p>
@@ -2462,9 +2550,14 @@
   // --- MAP INIT ---
   DG.then(() => {
       map = DG.map('map', {
-          center: [56.466509, 84.94569], zoom: 13,
+          center: [56.466509, 84.94569], zoom: 13, 
 
       });
+
+DG.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    attribution: '&copy; Google Maps'
+}).addTo(map);
+      
 
       // Start tracking user location immediately
       startUserTracking();
@@ -2607,7 +2700,7 @@
               }
           );
       });
-  });
+  })
 
   // --- FILTERS ---
   function filter(t) {
