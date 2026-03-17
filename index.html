@@ -870,12 +870,12 @@
             </div>
           </div>
 
-          <div class="detail-actions">
-            <button class="btn-action secondary">Поделиться</button>
-            <button class="btn-action primary" id="btnDetailRoute">Построить маршрут</button>
-            <!-- PANORAMA BUTTON -->
-            <button class="btn-action primary" id="btnDetailPanorama" style="display:none; grid-column: span 2; margin-top: 5px;">Смотреть панораму</button>
-          </div>
+            <div class="detail-actions">
+                <button class="btn-action secondary" id="btnDetailShare">Поделиться</button>
+                <button class="btn-action primary" id="btnDetailRoute">Построить маршрут</button>
+                <!-- PANORAMA BUTTON -->
+                <button class="btn-action primary" id="btnDetailPanorama" style="display:none; grid-column: span 2; margin-top: 5px;">Смотреть панораму</button>
+            </div>
         </div>
       </div>
 
@@ -1424,6 +1424,31 @@
           { coords: [56.459708, 84.987649], radius: 800 }
       ]
     }
+  ];
+
+    // --- КОНФИГУРАЦИЯ КОММУНАЛЬНЫХ ПРОБЛЕМ ---
+  const communalData = [
+    {
+      id: 'comm_1', // Уникальный ID (строка)
+      coords: [56.519604, 85.02992], // Координаты [широта, долгота]
+      title: "Аварийный сход снега, ул.Мичурино",
+      desc: "На крыше дома образовалась наледь. Возможен сход снега. Будьте осторожны при проходе.",
+      image: "https://bta.ru/wp-content/uploads/2019/02/Foto-1-_-Material-1-e1550054019562.jpg", // Заглушка (замените на свою)
+      stats: { crime: "Нет данных", light: "Нет данных", people: "Нет данных" },
+      radius: 300, // Радиус опасной зоны в метрах
+      type: 'communal' // Важно! Тип метки
+    },
+    {
+      id: 'comm_2',
+      coords: [56.472000, 84.952000],
+      title: "Перекрытие дорог, ул. Герцена",
+      desc: "Идут аварийные работы. Ограждение установлено. Проход затруднен. Срок окончания работ: 14.04.2026.",
+      image: "https://core-pht-proxy.maps.yandex.ru/v1/photos/download?photo_id=YH6wn8xlmcXBiFJfIk0drA&image_size=XXXL",
+      stats: { crime: "Нет данных", light: "Нет данных", people: "Нет данных" },
+      radius: 300,
+      type: 'communal'
+    }
+    // Добавляйте новые объекты через запятую
   ];
 
   // --- CONFIG ---
@@ -2587,6 +2612,8 @@ DG.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
       myIcon3 = mk('images2/EcoIcon3.png', 55, 55);
       myIcon4 = mk('images2/EcoIcon.png', 88, 88);
       myIcon5 = mk('images2/EcoIcon5.png', 44, 44);
+            // Иконка для коммунальных проблем (замените путь к файлу на свой)
+      const myCommunalIcon = mk('images2/repair.png', 55, 55); 
 
       placesData.forEach(place => {
           let icon = myIcon;
@@ -2656,6 +2683,35 @@ DG.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
           });
       });
 
+      // --- ОТРИСОВКА КОММУНАЛЬНЫХ МЕТОК ---
+      communalData.forEach(item => {
+          // 1. Создаем маркер
+          const marker = DG.marker(item.coords, { icon: myCommunalIcon });
+          
+          marker.on('click', (e) => {
+              resetHighlights();
+              openViewItem(item);
+              activeLayerId = item.id;
+              activeLayerType = 'communal';
+              // Подсветка иконки (опционально)
+              if(e.target._icon) e.target._icon.classList.add('active-marker');
+          });
+
+          marker.addTo(map);
+          markers.push(marker);
+
+          // 2. Создаем четкий радиус вокруг метки (не размытый)
+          if(item.radius) {
+              DG.circle(item.coords, {
+                  radius: item.radius,
+                  color: '#ff6b6b',     // Цвет обводки
+                  fillColor: '#ff6b6b', // Цвет заливки
+                  fillOpacity: 0.25,    // Прозрачность заливки
+                  weight: 2,            // Толщина обводки
+                  dashArray: '5, 5'     // Пунктир (опционально, можно убрать)
+              }).addTo(map);
+          }
+      });
       const btnDetailRoute = document.getElementById('btnDetailRoute');
       
       btnDetailRoute.addEventListener('click', () => {
